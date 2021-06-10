@@ -10,20 +10,16 @@ generated with MapGen, or for making tweaks to an already complete map.
 ![Province Map Mode](https://imgur.com/OP2NnHf.png)
 ![Terrain Map Mode](https://imgur.com/OnU2Mwf.png)
 
-If "HOI4 Province Editor" is too much of a mouthfull, just call it HOI4PE.
+To load a map, you can do one of the following:
+- Drag a folder and it will look for a `provinces.bmp` and `definition.csv` inside that folder
+- Drag a file and if its name is `provinces.bmp` or `definition.csv`, it will look in the same folder for the other file
+- Drag a ZIP archive, and it will try to load `provinces.bmp` and `definition.csv` from the archive
+- Use `Ctrl-O` or `Ctrl-Alt-O` to load a folder or archive using the file browser
 
-## Features
-- [x] Map viewing, editing and manupulation
-- [x] Support for custom terrain types via configuration file
-- [x] Calculating map errors/warnings
-- [ ] Console for issuing more complex instructions
-- [x] Saving/loading/exporting
-- [x] Auto-generating which provinces are coastal
-- [ ] Support for creating/editing adjacencies
-- [ ] Support for
-- [ ] Exporting terrain or land type view modes for MapGen/ProvGen
-- [ ] Province selection and multiple province editing
-- [ ] Preserving province IDs (in order to not break maps)
+In the terrain/biome map mode, the colors are based on what MapGen/ProvGen takes as input for terrain maps.
+In the coastal map mode, darker colors represent provinces that are not coastal, while lighter colors are coastal.
+
+When painting continent IDs, you cannot paint continent 0 on land, and sea can only have continent 0.
 
 ## Controls
 - `1` Color/province map view mode
@@ -47,17 +43,19 @@ If "HOI4 Province Editor" is too much of a mouthfull, just call it HOI4PE.
 - `H` resets the camera view
 - The tilde key on QWERTY keyboards will open/close the console, though the console doesn't do anything yet
 
-## Extra info
-To load a map, you can do one of the following:
-- Drag a folder and it will look for a `provinces.bmp` and `definition.csv` inside that folder
-- Drag a file and if its name is `provinces.bmp` or `definition.csv`, it will look in the same folder for the other file
-- Drag a ZIP archive, and it will try to load `provinces.bmp` and `definition.csv` from the archive
-- Use `Ctrl-O` or `Ctrl-Alt-O` to load a folder or archive using the file browser
+## Features
+- Map viewing, editing, manupulation, importing and exporting
+- Support for custom terrain types via `hoi4pe_config.toml`
+- Seeing map errors/warnings graphically (via `Shift-P`)
+- Auto-generating which provinces are coastal (via `Shift-C`)
 
-In the terrain/biome map mode, the colors are based on what MapGen/ProvGen takes as input for terrain maps.
-In the coastal map mode, darker colors represent provinces that are not coastal, while lighter colors are coastal.
-
-When painting continent IDs, you cannot paint continent 0 on land, and sea can only have continent 0.
+## Planned Features
+- Console for issuing more complex instructions
+- Support for creating/editing adjacencies
+- Support for states/strategic regions
+- Exporting terrain or land type view modes for MapGen/ProvGen
+- Province selection and multiple province editing
+- Preserving province IDs (in order to not break maps)
 
 ## Building
 1. [Install Rust](https://www.rust-lang.org/tools/install)

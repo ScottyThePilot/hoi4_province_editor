@@ -1,0 +1,445 @@
+use fxhash::FxHashSet;
+use graphics::Transformed;
+use graphics::context::Context;
+use graphics::color::WHITE;
+use graphics::ellipse::Ellipse;
+use itertools::Itertools;
+use opengl_graphics::{Filter, GlGraphics, Texture, TextureSettings};
+use vecmath::{Matrix2x3, Vector2};
+
+use super::map::*;
+use super::FontGlyphCache;
+use super::format::DefinitionKind;
+use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
+use crate::config::Config;
+use super::console::{ConsoleHandle, FONT_SIZE};
+use crate::util::random::RandomHandle;
+use crate::util::stringify_color;
+use crate::error::Error;
+
+use std::rc::Rc;
+
+const ZOOM_SENSITIVITY: f64 = 0.125;
+const WINDOW_CENTER: Vector2<f64> = [WINDOW_WIDTH as f64 / 2.0, WINDOW_HEIGHT as f64 / 2.0];
+
+pub struct Canvas {
+  bundle: Bundle,
+  history: History,
+  texture: Texture,
+  view_mode: ViewMode,
+  brush: BrushSettings,
+  problems: Vec<Problem>,
+  unknown_terrains: Option<FxHashSet<String>>,
+  location: Location,
+  modified: bool,
+  pub camera: Camera
+}
+
+impl Canvas {
+  pub fn load(location: Location, config: Rc<Config>) -> Result<Canvas, Error> {
+    let history = History::new(config.max_undo_states);
+    let bundle = Bundle::load(&location, config, RandomHandle::new())?;
+    let texture_settings = TextureSettings::new().mag(Filter::Nearest);
+    let texture = Texture::from_image(&bundle.texture_buffer_color(), &texture_settings);
+    // The test map is very small with large ocean provinces, the 'too large box' errors go nuts
+    let problems = if cfg!(debug_assertions) { Vec::new() } else { bundle.generate_problems() };
+    let unknown_terrains = bundle.search_unknown_terrains();
+    let camera = Camera::new(&texture);
+
+    if let Some(unknown_terrains) = &unknown_terrains {
+      let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
+      return Err(format!("Unknown terrains present, not found in config: {}", unknown_terrains).into());
+    };
+
+    Ok(Canvas {
+      bundle,
+      history,
+      texture,
+      view_mode: ViewMode::Color,
+      brush: BrushSettings::default(),
+      problems,
+      unknown_terrains,
+      location,
+      modified: false,
+      camera
+    })
+  }
+
+  pub fn save(&self, location: &Location) -> Result<(), Error> {
+    self.bundle.save(location)
+  }
+
+  pub fn modified(&self) -> bool {
+    self.modified
+  }
+
+  pub fn location(&self) -> &Location {
+    &self.location
+  }
+
+  pub fn set_location(&mut self, location: Location) {
+    self.location = location;
+  }
+
+  pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, camera_info: bool, gl: &mut GlGraphics) {
+    let transform = ctx.transform.append_transform(self.camera.display_matrix);
+    graphics::image(&self.texture, transform, gl);
+
+    for problem in self.problems.iter() {
+      problem.draw(ctx, self.camera.display_matrix, gl);
+    };
+
+    if let (ViewMode::Color, Some(cursor_pos)) = (self.view_mode, self.camera.cursor_pos) {
+      let ellipse = Ellipse::new_border(WHITE, 0.5).resolution(16);
+      let radius = self.brush.radius * self.camera.scale_factor();
+      let transform = ctx.transform.trans_pos(cursor_pos);
+      ellipse.draw_from_to([radius, radius], [-radius, -radius], &Default::default(), transform, gl);
+    };
+
+    if camera_info {
+      let camera_info = self.camera_info();
+      let transform = ctx.transform.trans(8.0, WINDOW_HEIGHT as f64 - 8.0);
+      graphics::text(WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
+        .expect("unable to draw text");
+    };
+  }
+
+  pub fn undo(&mut self) {
+    if let Some(commit) = self.history.undo(&mut self.bundle.map) {
+      self.problems.clear();
+      if self.view_mode == commit.view_mode {
+        self.refresh_selective(commit.extents);
+      } else {
+        self.view_mode = commit.view_mode;
+        self.refresh();
+      };
+    };
+  }
+
+  pub fn redo(&mut self) {
+    if let Some(commit) = self.history.redo(&mut self.bundle.map) {
+      self.problems.clear();
+      if self.view_mode == commit.view_mode {
+        self.refresh_selective(commit.extents);
+      } else {
+        self.view_mode = commit.view_mode;
+        self.refresh();
+      };
+    };
+  }
+
+  pub fn calculate_coastal_provinces(&mut self) {
+    self.bundle.calculate_coastal_provinces(&mut self.history);
+    self.view_mode = ViewMode::Coastal;
+    self.refresh();
+  }
+
+  pub fn calculate_recolor_map(&mut self) {
+    self.bundle.calculate_recolor_map(&mut self.history);
+    self.view_mode = ViewMode::Color;
+    self.brush.color_brush = None;
+    self.refresh();
+  }
+
+  pub fn display_problems(&mut self, mut console: ConsoleHandle) {
+    self.problems = self.bundle.generate_problems();
+    if self.problems.is_empty() {
+      console.push_system(Ok("No map problems detected"));
+    } else {
+      for problem in self.problems.iter() {
+        console.push_system(Ok(format!("Problem: {}", problem)));
+      };
+    };
+  }
+
+  pub fn cycle_brush(&mut self, mut console: ConsoleHandle) {
+    match self.view_mode {
+      ViewMode::Color => {
+        let kind = self.brush.kind_brush
+          .map(ProvinceKind::from)
+          .or_else(|| {
+            let pos = self.camera.cursor_rel_int()?;
+            Some(self.bundle.map.get_province_at(pos).kind)
+          })
+          .unwrap_or(ProvinceKind::Land);
+        let color = self.bundle.random_color_pure(kind);
+        self.brush.color_brush = Some(color);
+        console.push_system(Ok(format!("Brush set to color {}", stringify_color(color))))
+      },
+      ViewMode::Kind => {
+        let kind = self.brush.kind_brush;
+        let kind = self.bundle.config.cycle_kinds(kind);
+        self.brush.kind_brush = Some(kind);
+        console.push_system(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
+      },
+      ViewMode::Terrain => {
+        let terrain = self.brush.terrain_brush.as_deref();
+        let terrain = self.bundle.config.cycle_terrains(terrain);
+        console.push_system(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
+        self.brush.terrain_brush = Some(terrain);
+      },
+      ViewMode::Continent => {
+        let continent = self.brush.continent_brush;
+        let continent = self.bundle.config.cycle_continents(continent);
+        self.brush.continent_brush = Some(continent);
+        console.push_system(Ok(format!("Brush set to continent {}", continent)));
+      },
+      ViewMode::Coastal => ()
+    };
+  }
+
+  pub fn pick_brush(&mut self, mut console: ConsoleHandle) {
+    if let Some(pos) = self.camera.cursor_rel_int() {
+      let color = self.bundle.map.get_color_at(pos);
+      let province_data = self.bundle.map.get_province_at(pos);
+      match self.view_mode {
+        ViewMode::Color => {
+          self.brush.color_brush = Some(color);
+          console.push_system(Ok(format!("Picked color {}", stringify_color(color))));
+        },
+        ViewMode::Kind => if let Some(kind) = province_data.kind.to_definition_kind() {
+          self.brush.kind_brush = Some(kind);
+          console.push_system(Ok(format!("Picked type {}", kind.to_str().to_uppercase())));
+        },
+        ViewMode::Terrain => if province_data.terrain != "unknown" {
+          let terrain = province_data.terrain.as_str();
+          self.brush.terrain_brush = Some(terrain.to_owned());
+          console.push_system(Ok(format!("Picked terrain {}", terrain.to_uppercase())));
+        },
+        ViewMode::Continent => {
+          let continent = province_data.continent;
+          self.brush.continent_brush = Some(continent);
+          console.push_system(Ok(format!("Picked continent {}", continent)));
+        },
+        ViewMode::Coastal => ()
+      };
+    };
+  }
+
+  pub fn paint_brush(&mut self) {
+    if let Some(pos) = self.camera.cursor_rel_int() {
+      if let (Some(color), ViewMode::Color) = (self.brush.color_brush, self.view_mode) {
+        let (pos, radius) = (self.camera.cursor_rel().expect("infallible"), self.brush.radius);
+        if let Some(extents) = self.bundle.paint_pixel_area(&mut self.history, pos, radius, color) {
+          self.problems.clear();
+          self.modified = true;
+          self.refresh_selective(extents);
+        };
+      } else if let (Some(kind), ViewMode::Kind) = (self.brush.kind_brush, self.view_mode) {
+        if let Some(extents) = self.bundle.paint_province_kind(&mut self.history, pos, kind) {
+          self.modified = true;
+          self.refresh_selective(extents);
+        };
+      } else if let (Some(terrain), ViewMode::Terrain) = (&self.brush.terrain_brush, self.view_mode) {
+        if let Some(extents) = self.bundle.paint_province_terrain(&mut self.history, pos, terrain.clone()) {
+          self.modified = true;
+          self.refresh_selective(extents);
+        };
+      } else if let (Some(continent), ViewMode::Continent) = (self.brush.continent_brush, self.view_mode) {
+        if let Some(extents) = self.bundle.paint_province_continent(&mut self.history, pos, continent) {
+          self.modified = true;
+          self.refresh_selective(extents);
+        };
+      };
+    };
+  }
+
+  pub fn paint_stop(&mut self) {
+    self.bundle.painting_stop(&mut self.history);
+  }
+
+  pub fn change_brush_radius(&mut self, d: f64) {
+    const LIMIT: f64 = std::f64::consts::SQRT_2 / 2.0;
+    if let ViewMode::Color = self.view_mode {
+      let r = self.brush.radius;
+      let d = d * (1.0 + 0.025 * r);
+      self.brush.radius = (r + d).max(LIMIT);
+    };
+  }
+
+  pub fn set_view_mode(&mut self, mut console: ConsoleHandle, view_mode: ViewMode) {
+    if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, &self.unknown_terrains) {
+      let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
+      console.push_system(Err(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains)));
+    } else if view_mode != self.view_mode {
+      self.view_mode = view_mode;
+      self.refresh();
+    };
+  }
+
+  fn refresh(&mut self) {
+    let buffer = match self.view_mode {
+      ViewMode::Color => self.bundle.texture_buffer_color(),
+      ViewMode::Kind => self.bundle.texture_buffer_kind(),
+      ViewMode::Terrain => self.bundle.texture_buffer_terrain(),
+      ViewMode::Continent => self.bundle.texture_buffer_continent(),
+      ViewMode::Coastal => self.bundle.texture_buffer_coastal()
+    };
+
+    self.texture.update(&buffer);
+  }
+
+  fn refresh_selective(&mut self, extents: Extents) {
+    use opengl_graphics::{UpdateTexture, Format};
+    let (offset, size) = extents.to_offset_size();
+    let buffer = match self.view_mode {
+      ViewMode::Color => self.bundle.texture_buffer_selective_color(extents),
+      ViewMode::Kind => self.bundle.texture_buffer_selective_kind(extents),
+      ViewMode::Terrain => self.bundle.texture_buffer_selective_terrain(extents),
+      ViewMode::Continent => self.bundle.texture_buffer_selective_continent(extents),
+      ViewMode::Coastal => self.bundle.texture_buffer_selective_coastal(extents)
+    };
+
+    UpdateTexture::update(&mut self.texture, &mut (), Format::Rgba8, &buffer, offset, size)
+      .expect("unable to update texture");
+  }
+
+  fn brush_info(&self) -> String {
+    match self.view_mode {
+      ViewMode::Color => match self.brush.color_brush {
+        Some(color) => format!("color {}", stringify_color(color)),
+        None => "color (no brush)".to_owned()
+      },
+      ViewMode::Kind => match self.brush.kind_brush {
+        Some(kind) => format!("type {}", kind.to_str().to_uppercase()),
+        None => "type (no brush)".to_owned()
+      },
+      ViewMode::Terrain => match &self.brush.terrain_brush {
+        Some(terrain) => format!("terrain {}", terrain.to_uppercase()),
+        None => "terrain (no brush)".to_owned()
+      },
+      ViewMode::Continent => match self.brush.continent_brush {
+        Some(continent) => format!("continent {}", continent),
+        None => "continent (no brush)".to_owned()
+      },
+      ViewMode::Coastal => "coastal".to_owned()
+    }
+  }
+
+  fn camera_info(&self) -> String {
+    let zoom_info = format!("{:.2}%", self.camera.scale_factor() * 100.0);
+    let cursor_info = self.camera.cursor_rel_int()
+      .map_or_else(String::new, |[x, y]| format!("{}, {} px", x, y));
+    let brush_info = self.brush_info();
+    format!("{:<24}{:<24}{}", cursor_info, zoom_info, brush_info)
+  }
+}
+
+
+
+#[derive(Debug, Clone)]
+pub struct BrushSettings {
+  color_brush: Option<Color>,
+  kind_brush: Option<DefinitionKind>,
+  terrain_brush: Option<String>,
+  continent_brush: Option<u16>,
+  radius: f64
+}
+
+impl Default for BrushSettings {
+  fn default() -> BrushSettings {
+    BrushSettings {
+      color_brush: None,
+      kind_brush: None,
+      terrain_brush: None,
+      continent_brush: None,
+      radius: 8.0
+    }
+  }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ViewMode {
+  Color,
+  Kind,
+  Terrain,
+  Continent,
+  Coastal
+}
+
+#[derive(Debug)]
+pub struct Camera {
+  pub cursor_pos: Option<Vector2<f64>>,
+  pub texture_size: Vector2<f64>,
+  pub display_matrix: Matrix2x3<f64>,
+  pub panning: bool
+}
+
+impl Camera {
+  fn new(texture: &Texture) -> Self {
+    use opengl_graphics::ImageSize;
+    let (width, height) = texture.get_size();
+    let texture_size = [width as f64, height as f64];
+    let display_matrix = vecmath::mat2x3_id()
+      .trans_pos(vecmath::vec2_scale(texture_size, -0.5))
+      .trans_pos(WINDOW_CENTER);
+    Camera {
+      cursor_pos: None,
+      texture_size,
+      display_matrix,
+      panning: false
+    }
+  }
+
+  pub fn on_mouse_position(&mut self, pos: Option<Vector2<f64>>) {
+    self.cursor_pos = pos;
+  }
+
+  pub fn on_mouse_relative(&mut self, rel: Vector2<f64>) {
+    if self.panning {
+      let rel = vecmath::vec2_scale(rel, self.scale_factor().recip());
+      self.display_matrix = self.display_matrix.trans_pos(rel);
+    };
+  }
+
+  pub fn on_mouse_zoom(&mut self, dz: f64) {
+    let zoom = 2.0f64.powf(dz * ZOOM_SENSITIVITY);
+    let cursor_rel = self.cursor_rel().unwrap_or([0.0, 0.0]);
+    let cursor_rel_neg = vecmath::vec2_neg(cursor_rel);
+    self.display_matrix = self.display_matrix
+      .trans_pos(cursor_rel)
+      .zoom(zoom)
+      .trans_pos(cursor_rel_neg);
+  }
+
+  pub fn reset(&mut self) {
+    self.display_matrix = vecmath::mat2x3_id()
+      .trans_pos(vecmath::vec2_scale(self.texture_size, -0.5))
+      .trans_pos(WINDOW_CENTER);
+  }
+
+  pub fn set_panning(&mut self, panning: bool) {
+    self.panning = panning;
+  }
+
+  fn relative_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
+    vecmath::row_mat2x3_transform_pos2(self.display_matrix_inv(), pos)
+  }
+
+  fn relative_position_int(&self, pos: Vector2<f64>) -> Option<Vector2<u32>> {
+    let pos = self.relative_position(pos);
+    self.within_dimensions(pos)
+      .then(|| [pos[0] as u32, pos[1] as u32])
+  }
+
+  fn cursor_rel(&self) -> Option<Vector2<f64>> {
+    self.cursor_pos.map(|cursor_pos| self.relative_position(cursor_pos))
+  }
+
+  fn cursor_rel_int(&self) -> Option<Vector2<u32>> {
+    self.cursor_pos.and_then(|cursor_pos| self.relative_position_int(cursor_pos))
+  }
+
+  fn display_matrix_inv(&self) -> Matrix2x3<f64> {
+    vecmath::mat2x3_inv(self.display_matrix)
+  }
+
+  pub fn scale_factor(&self) -> f64 {
+    (self.display_matrix[0][0] + self.display_matrix[1][1]) / 2.0
+  }
+
+  fn within_dimensions(&self, pos: Vector2<f64>) -> bool {
+    (0.0..self.texture_size[0]).contains(&pos[0]) &&
+    (0.0..self.texture_size[1]).contains(&pos[1])
+  }
+}

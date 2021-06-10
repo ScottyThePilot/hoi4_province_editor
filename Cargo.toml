@@ -1,0 +1,38 @@
+[package]
+name = "hoi4_province_editor"
+version = "0.1.0"
+authors = ["ScottyThePilot <scotty.codes@gmail.com>"]
+edition = "2018"
+description = "Map editor application for Hearts of Iron IV"
+readme = "README.md"
+repository = "https://github.com/ScottyThePilot/hoi4_province_editor"
+license = "MIT"
+
+[dependencies]
+better-panic = "0.2"
+ccl-fxhash = "3.0"
+glutin = "0.26"
+image = { version = "0.23", default-features = false, features = ["bmp"] }
+itertools = "0.10"
+lazy_static = "1.4"
+native-dialog = "0.5"
+piston = "0.53"
+piston2d-graphics = { version = "0.40", features = ["glyph_cache_rusttype"] }
+piston2d-opengl_graphics = "0.78"
+pistoncore-glutin_window = "0.69"
+rand = { version = "0.8", features = ["small_rng"] }
+rusttype = "0.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_multi = { version = "0.1", features = ["toml"] }
+# TODO: replace with thiserror
+util_macros = { git = "https://github.com/ScottyThePilot/util_macros" }
+vecmath = "1.0"
+zip = "0.5"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1

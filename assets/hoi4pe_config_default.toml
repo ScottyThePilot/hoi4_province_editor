@@ -1,0 +1,49 @@
+# The max number of history states to keep for undo/redo
+max_undo_states = 24
+
+# Whether the application should attempt to preserve the IDs and colors of the original map
+# so as to not break states, strategic regions, etc.
+preserve_ids = false
+
+# You can define custom terrains/biomes below, simply specify the name, the
+# color you want it to be in the editor, and the type of terrain it is (land/sea/lake)
+
+[terrain.plains]
+color = [0xff, 0x81, 0x42]
+type = 'land'
+
+[terrain.desert]
+color = [0xff, 0x3f, 0x00]
+type = 'land'
+
+[terrain.forest]
+color = [0x59, 0xc7, 0x55]
+type = 'land'
+
+[terrain.hills]
+color = [0xf8, 0xff, 0x99]
+type = 'land'
+
+[terrain.jungle]
+color = [0x7f, 0xbf, 0x00]
+type = 'land'
+
+[terrain.marsh]
+color = [0x4c, 0x60, 0x23]
+type = 'land'
+
+[terrain.mountain]
+color = [0x7c, 0x87, 0x7d]
+type = 'land'
+
+[terrain.lakes]
+color = [0x00, 0xff, 0xff]
+type = 'lake'
+
+[terrain.ocean]
+color = [0x00, 0x00, 0xff]
+type = 'sea'
+
+[terrain.urban]
+color = [0x9b, 0x00, 0xff]
+type = 'land'

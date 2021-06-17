@@ -1,4 +1,5 @@
 pub mod canvas;
+mod command;
 mod console;
 pub mod format;
 pub mod map;
@@ -127,6 +128,7 @@ impl App {
       (false, _, Up, Button::Keyboard(Key::LShift)) => self.mod_shift = false,
       (false, _, Up, Button::Keyboard(Key::LCtrl)) => self.mod_ctrl = false,
       (false, _, Up, Button::Keyboard(Key::LAlt)) => self.mod_alt = false,
+      (false, _, Dn, Button::Keyboard(Key::O)) if self.mod_ctrl => self.open_map(self.mod_alt),
       (false, Some(canvas), state, button) => match (state, button) {
         (Dn, Button::Mouse(MouseButton::Left)) => self.start_painting(),
         (Up, Button::Mouse(MouseButton::Left)) => self.stop_painting(),
@@ -137,7 +139,6 @@ impl App {
         (Dn, Button::Keyboard(Key::Y)) if self.mod_ctrl => canvas.redo(),
         (Dn, Button::Keyboard(Key::S)) if self.mod_ctrl && self.mod_shift => self.save_map_as(self.mod_alt),
         (Dn, Button::Keyboard(Key::S)) if self.mod_ctrl => self.save_map(),
-        (Dn, Button::Keyboard(Key::O)) if self.mod_ctrl => self.open_map(self.mod_alt),
         (Dn, Button::Keyboard(Key::Space)) => canvas.cycle_brush(self.console.handle()),
         (Dn, Button::Keyboard(Key::C)) if self.mod_shift => canvas.calculate_coastal_provinces(),
         (Dn, Button::Keyboard(Key::R)) if self.mod_shift => canvas.calculate_recolor_map(),
@@ -199,14 +200,16 @@ impl App {
   }
 
   pub fn execute_command(&mut self) {
-    if let Some(_command) = self.console.enter_command() {
-      // TODO: Make the console actually work
+    if let Some(line) = self.console.enter_command() {
+      let canvas = self.canvas.as_mut();
+      let console = self.console.handle();
+      command::line(line, console, canvas);
     };
   }
 
   fn is_canvas_modified(&self) -> bool {
     if let Some(canvas) = &self.canvas {
-      canvas.modified()
+      canvas.modified
     } else {
       false
     }
@@ -248,7 +251,7 @@ impl App {
 
   fn open_map(&mut self, archive: bool) {
     if let Some(canvas) = &mut self.canvas {
-      if canvas.modified() {
+      if canvas.modified {
         if msg_dialog_unsaved_changes() {
           self.save_map();
         };
@@ -297,11 +300,12 @@ impl App {
 
   fn save_map_location<L>(&mut self, location: L) -> bool
   where L: TryInto<Location>, L::Error: fmt::Display {
-    let canvas = self.canvas.as_ref().expect("no canvas loaded");
+    let canvas = self.canvas.as_mut().expect("no canvas loaded");
     if let Some(location) = location.try_into().report(self.console.handle()) {
       let success_message = format!("Saved map to {}", location);
       if let Some(()) = canvas.save(&location).report(self.console.handle()) {
         self.console.push_system(Ok(success_message));
+        canvas.modified = false;
         true
       } else {
         false

@@ -31,7 +31,7 @@ pub struct Canvas {
   problems: Vec<Problem>,
   unknown_terrains: Option<FxHashSet<String>>,
   location: Location,
-  modified: bool,
+  pub modified: bool,
   pub camera: Camera
 }
 
@@ -46,10 +46,10 @@ impl Canvas {
     let unknown_terrains = bundle.search_unknown_terrains();
     let camera = Camera::new(&texture);
 
-    if let Some(unknown_terrains) = &unknown_terrains {
-      let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
-      return Err(format!("Unknown terrains present, not found in config: {}", unknown_terrains).into());
-    };
+    //if let Some(unknown_terrains) = &unknown_terrains {
+    //  let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
+    //  return Err(format!("Unknown terrains present, not found in config: {}", unknown_terrains).into());
+    //};
 
     Ok(Canvas {
       bundle,
@@ -69,16 +69,20 @@ impl Canvas {
     self.bundle.save(location)
   }
 
-  pub fn modified(&self) -> bool {
-    self.modified
-  }
-
   pub fn location(&self) -> &Location {
     &self.location
   }
 
+  pub fn view_mode(&self) -> ViewMode {
+    self.view_mode
+  }
+
   pub fn set_location(&mut self, location: Location) {
     self.location = location;
+  }
+
+  pub fn config(&self) -> Rc<Config> {
+    Rc::clone(&self.bundle.config)
   }
 
   pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, camera_info: bool, gl: &mut GlGraphics) {
@@ -150,6 +154,10 @@ impl Canvas {
         console.push_system(Ok(format!("Problem: {}", problem)));
       };
     };
+  }
+
+  pub fn brush_mut(&mut self) -> &mut BrushSettings {
+    &mut self.brush
   }
 
   pub fn cycle_brush(&mut self, mut console: ConsoleHandle) {
@@ -329,11 +337,11 @@ impl Canvas {
 
 #[derive(Debug, Clone)]
 pub struct BrushSettings {
-  color_brush: Option<Color>,
-  kind_brush: Option<DefinitionKind>,
-  terrain_brush: Option<String>,
-  continent_brush: Option<u16>,
-  radius: f64
+  pub color_brush: Option<Color>,
+  pub kind_brush: Option<DefinitionKind>,
+  pub terrain_brush: Option<String>,
+  pub continent_brush: Option<u16>,
+  pub radius: f64
 }
 
 impl Default for BrushSettings {

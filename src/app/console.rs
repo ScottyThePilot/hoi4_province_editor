@@ -41,7 +41,7 @@ impl Console {
       let command = active_console.take();
       let entry = format!("> {}", command);
       self.push(entry);
-      Some(command)
+      Some(command.to_lowercase())
     } else {
       None
     }
@@ -109,7 +109,7 @@ impl Console {
       Ok(t) => (t.into(), ConsoleColor::System),
       Err(t) => (t.into(), ConsoleColor::SystemError)
     };
-    
+
     self.messages.push_back(ConsoleMessage::new(text, color, self.max_lifetime));
   }
 
@@ -149,7 +149,7 @@ impl ConsoleMessage {
   fn dead(&self, now: Instant) -> bool {
     now.duration_since(self.epoch) > self.max_lifetime
   }
-  
+
   fn color(&self, now: Instant) -> Color {
     let mut color = self.color.get();
     color[3] = self.alpha_lifetime(now);

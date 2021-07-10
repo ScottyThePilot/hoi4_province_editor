@@ -1,4 +1,7 @@
+#[warn(missing_debug_implementations)]
 extern crate better_panic;
+extern crate chrono;
+extern crate crossbeam;
 extern crate fxhash;
 extern crate image;
 extern crate native_dialog;

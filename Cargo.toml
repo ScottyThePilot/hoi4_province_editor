@@ -11,6 +11,8 @@ license = "MIT"
 [dependencies]
 better-panic = "0.2"
 ccl-fxhash = "3.0"
+chrono = "0.4"
+crossbeam = "0.8"
 glutin = "0.26"
 image = { version = "0.23", default-features = false, features = ["bmp"] }
 itertools = "0.10"

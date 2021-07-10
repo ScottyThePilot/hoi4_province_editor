@@ -3,6 +3,7 @@ pub mod hsl;
 pub mod random;
 pub mod uord;
 
+use chrono::Local;
 use fxhash::{FxHashMap, FxHashSet, FxBuildHasher};
 use vecmath::Vector2;
 
@@ -76,4 +77,8 @@ pub fn fx_hash_map_with_capacity<K, V>(capacity: usize) -> FxHashMap<K, V> {
 
 pub fn fx_hash_set_with_capacity<T>(capacity: usize) -> FxHashSet<T> {
   FxHashSet::with_capacity_and_hasher(capacity, FxBuildHasher::default())
+}
+
+pub fn now() -> impl std::fmt::Display + 'static {
+  Local::now().format("%Y-%m-%d %H:%M:%S")
 }

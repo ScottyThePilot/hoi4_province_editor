@@ -16,8 +16,9 @@ const DEFAULT_CONFIG: &[u8] = include_bytes!("../assets/hoi4pe_config_default.to
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+  #[serde(rename = "max-undo-states", alias = "max_undo_states")]
   pub max_undo_states: usize,
-  #[serde(alias = "recolour_provinces")]
+  #[serde(rename = "preserve-ids", alias = "preserve_ids")]
   pub preserve_ids: bool,
   #[serde(rename = "terrain", skip_serializing_if = "FxHashMap::is_empty")]
   pub terrains: FxHashMap<String, Terrain>

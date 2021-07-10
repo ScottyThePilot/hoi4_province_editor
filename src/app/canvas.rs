@@ -17,7 +17,7 @@ use crate::util::random::RandomHandle;
 use crate::util::stringify_color;
 use crate::error::Error;
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 const ZOOM_SENSITIVITY: f64 = 0.125;
 const WINDOW_CENTER: Vector2<f64> = [WINDOW_WIDTH as f64 / 2.0, WINDOW_HEIGHT as f64 / 2.0];
@@ -36,7 +36,7 @@ pub struct Canvas {
 }
 
 impl Canvas {
-  pub fn load(location: Location, config: Rc<Config>) -> Result<Canvas, Error> {
+  pub fn load(location: Location, config: Arc<Config>) -> Result<Canvas, Error> {
     let history = History::new(config.max_undo_states);
     let bundle = Bundle::load(&location, config, RandomHandle::new())?;
     let texture_settings = TextureSettings::new().mag(Filter::Nearest);
@@ -81,8 +81,8 @@ impl Canvas {
     self.location = location;
   }
 
-  pub fn config(&self) -> Rc<Config> {
-    Rc::clone(&self.bundle.config)
+  pub fn config(&self) -> Arc<Config> {
+    Arc::clone(&self.bundle.config)
   }
 
   pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, camera_info: bool, gl: &mut GlGraphics) {

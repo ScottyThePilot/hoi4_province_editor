@@ -1,9 +1,9 @@
 # The max number of history states to keep for undo/redo
-max_undo_states = 24
+max-undo-states = 24
 
 # Whether the application should attempt to preserve the IDs and colors of the original map
 # so as to not break states, strategic regions, etc.
-preserve_ids = false
+preserve-ids = false
 
 # You can define custom terrains/biomes below, simply specify the name, the
 # color you want it to be in the editor, and the type of terrain it is (land/sea/lake)

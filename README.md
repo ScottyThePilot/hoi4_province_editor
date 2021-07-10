@@ -16,6 +16,11 @@ To load a map, you can do one of the following:
 - Drag a ZIP archive, and it will try to load `provinces.bmp` and `definition.csv` from the archive
 - Use `Ctrl-O` or `Ctrl-Alt-O` to load a folder or archive using the file browser
 
+By default, HOI4PE will scramble all of the province IDs in your `definition.csv`. If you are editing a pre-existing
+map, this will probably mess up states, strategic regions, etc. In order to mitigate this, you can set the
+`preserve-ids` key to `true` in `hoi4pe_config.toml`; this will attempt to keep the ID scrambling to a minimum, and if
+IDs do change, they will be logged to `id_changes.txt`.
+
 In the terrain/biome map mode, the colors are based on what MapGen/ProvGen takes as input for terrain maps.
 In the coastal map mode, darker colors represent provinces that are not coastal, while lighter colors are coastal.
 
@@ -48,6 +53,7 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - Support for custom terrain types via `hoi4pe_config.toml`
 - Seeing map errors/warnings graphically (via `Shift-P`)
 - Auto-generating which provinces are coastal (via `Shift-C`)
+- Preserving province IDs (in order to not break maps)
 
 ## Planned Features
 - Console for issuing more complex instructions
@@ -55,7 +61,6 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - Support for states/strategic regions
 - Exporting terrain or land type view modes for MapGen/ProvGen
 - Province selection and multiple province editing
-- Preserving province IDs (in order to not break maps)
 
 ## Building
 1. [Install Rust](https://www.rust-lang.org/tools/install)

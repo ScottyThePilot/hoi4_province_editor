@@ -3,7 +3,8 @@ mod history;
 mod bridge;
 mod problems;
 
-use image::{Rgb, RgbImage, Rgba, RgbaImage};
+use crossbeam::thread::scope;
+use image::{Rgb, RgbImage, Rgba, RgbaImage, Pixel};
 use fxhash::{FxHashMap, FxHashSet};
 use serde::{Serialize, Deserialize};
 use vecmath::Vector2;
@@ -23,19 +24,19 @@ pub use self::problems::Problem;
 
 use std::convert::TryFrom;
 use std::str::FromStr;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub type Color = [u8; 3];
 
 #[derive(Debug)]
 pub struct Bundle {
   pub map: Map,
-  pub config: Rc<Config>,
+  pub config: Arc<Config>,
   pub rng: RandomHandle
 }
 
 impl Bundle {
-  pub fn load(location: &Location, config: Rc<Config>, rng: RandomHandle) -> Result<Self, Error> {
+  pub fn load(location: &Location, config: Arc<Config>, rng: RandomHandle) -> Result<Self, Error> {
     self::bridge::load_bundle(location, config, rng)
   }
 
@@ -137,10 +138,16 @@ impl Bundle {
     })
   }
 
+  // The 4096 continent cap is due to the way `RandomHandle::sequence_color` works,
+  // pre-generating the colors for each ID is much more efficient and avoids the
+  // overhead of locking mechanisms of a generate-as-you-go type setup.
+  // Besides, a map with 4096 continents sounds a bit absurd.
+
   pub fn texture_buffer_continent(&self) -> RgbaImage {
     self.map.texture_buffer(|which| {
       let continent = self.map.get_province(which).continent;
       self.rng.sequence_color(continent as usize)
+        .expect("only a maximum of 4096 provinces are supported")
     })
   }
 
@@ -148,6 +155,7 @@ impl Bundle {
     self.map.texture_buffer_selective(extents, |which| {
       let continent = self.map.get_province(which).continent;
       self.rng.sequence_color(continent as usize)
+        .expect("only a maximum of 4096 provinces are supported")
     })
   }
 
@@ -219,13 +227,25 @@ impl Map {
 
   /// Generates a texture buffer, a buffer to be consumed by the canvas to display the map
   pub fn texture_buffer<F>(&self, f: F) -> RgbaImage
-  where F: Fn(Color) -> Color {
+  where F: Fn(Color) -> Color + Send + Sync {
+    const CHUNK_SIZE: usize = 1048576;
+    const CHUNK_SIZE_BYTES: usize = CHUNK_SIZE * 4;
     let (width, height) = self.color_buffer.dimensions();
     let mut buffer = RgbaImage::new(width, height);
-    for (x, y, pixel) in buffer.enumerate_pixels_mut() {
-      let color = f(self.get_color_at([x, y]));
-      *pixel = Rgba(p4(color));
-    };
+    scope(|s| {
+      for (i, scope_chunk) in buffer.chunks_mut(CHUNK_SIZE_BYTES).enumerate() {
+        let so = i * CHUNK_SIZE;
+        let f = &f;
+        s.spawn(move |_| {
+          for (lo, pixel) in scope_chunk.chunks_mut(4).enumerate() {
+            let pixel = <Rgba<u8> as Pixel>::from_slice_mut(pixel);
+            let pos = pos_from_offset(so, lo, width as usize);
+            let color = f(self.get_color_at(pos));
+            *pixel = Rgba(p4(color));
+          };
+        });
+      };
+    }).unwrap();
 
     buffer
   }
@@ -391,7 +411,7 @@ impl Map {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IdData {
-  highest_id: u32
+  preserved_id_count: u32
 }
 
 /// Represents a simple bounding box
@@ -684,4 +704,10 @@ impl ColorKeyable for FxHashSet<Color> {
   fn contains_color(&self, color: Color) -> bool {
     self.contains(&color)
   }
+}
+
+#[inline(always)]
+fn pos_from_offset(so: usize, lo: usize, width: usize) -> Vector2<u32> {
+  let o = so + lo;
+  [(o % width) as u32, (o / width) as u32]
 }

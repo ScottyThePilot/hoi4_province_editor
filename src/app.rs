@@ -22,7 +22,7 @@ use self::map::Location;
 use std::convert::TryInto;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::env;
 use std::fmt;
 use std::mem;
@@ -38,7 +38,7 @@ pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
 
 pub struct App {
   pub canvas: Option<Canvas>,
-  pub config: Rc<Config>,
+  pub config: Arc<Config>,
   pub console: Console,
   pub cursor: CursorIcon,
   pub glyph_cache: FontGlyphCache,
@@ -59,7 +59,7 @@ impl App {
 
     App {
       canvas: None,
-      config: Rc::new(config),
+      config: Arc::new(config),
       console,
       cursor: CursorIcon::Crosshair,
       glyph_cache,
@@ -282,7 +282,7 @@ impl App {
 
   fn open_map_location<L>(&mut self, location: L) -> bool
   where L: TryInto<Location>, L::Error: fmt::Display {
-    let config = Rc::clone(&self.config);
+    let config = Arc::clone(&self.config);
     if let Some(location) = location.try_into().report(self.console.handle()) {
       let success_message = format!("Loaded map from {}", location);
       let canvas = Canvas::load(location, config).report(self.console.handle());

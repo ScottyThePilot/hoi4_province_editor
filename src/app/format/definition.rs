@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 use crate::util::csv::ParseCsv;
 use super::ParseError;
 
-use std::str::FromStr;
+use std::str::{FromStr, ParseBoolError};
 use std::cmp::{Ord, PartialOrd, Ordering};
 use std::convert::TryFrom;
 use std::fmt;
@@ -37,8 +37,8 @@ impl ParseCsv<8> for Definition {
     Some(Definition {
       id: id.parse().ok()?,
       rgb: [r.parse().ok()?, g.parse().ok()?, b.parse().ok()?],
-      kind: kind.parse().ok()?,
-      coastal: coastal.parse().ok()?,
+      kind: kind.to_lowercase().parse().ok()?,
+      coastal: parse_maybe_bool(&coastal).ok()?,
       terrain: terrain.to_lowercase(),
       continent: continent.parse().ok()?
     })
@@ -126,5 +126,13 @@ impl Into<&'static str> for DefinitionKind {
 impl fmt::Display for DefinitionKind {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "{}", self.to_str())
+  }
+}
+
+fn parse_maybe_bool(b: &str) -> Result<bool, ParseBoolError> {
+  match b.to_lowercase().as_str() {
+    "0" => Ok(false),
+    "1" => Ok(true),
+    b => b.parse::<bool>()
   }
 }

@@ -44,7 +44,7 @@ impl ParseCsv<10> for Adjacency {
     Some(Adjacency {
       from_id: from_id.parse().ok()?,
       to_id: to_id.parse().ok()?,
-      kind: kind.parse().ok()?,
+      kind: kind.to_lowercase().parse().ok()?,
       through: parse_maybe_num(&through).ok()?,
       start: parse_maybe_pos(&start_x, &start_y).ok()?,
       stop: parse_maybe_pos(&stop_x, &stop_y).ok()?,

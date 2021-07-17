@@ -2,7 +2,7 @@ use fxhash::FxHashMap;
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use serde_multi::formats::toml;
-use util_macros::error_enum;
+use thiserror::Error;
 
 use crate::app::map::Color;
 use crate::app::map::ProvinceKind;
@@ -125,12 +125,14 @@ pub struct Terrain {
   pub kind: ProvinceKind
 }
 
-error_enum!{
-  pub enum LoadConfigError {
-    IoError(std::io::Error),
-    FormatError(serde_multi::Error),
-    Custom(String)
-  }
+#[derive(Error, Debug)]
+pub enum LoadConfigError {
+  #[error(transparent)]
+  IoError(#[from] std::io::Error),
+  #[error(transparent)]
+  FormatError(#[from] serde_multi::Error),
+  #[error("{0}")]
+  Custom(String)
 }
 
 fn default_terrains() -> FxHashMap<String, Terrain> {

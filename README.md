@@ -61,6 +61,7 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - Support for states/strategic regions
 - Exporting terrain or land type view modes for MapGen/ProvGen
 - Province selection and multiple province editing
+- Support for platforms beyond Windows
 
 ## Building
 1. [Install Rust](https://www.rust-lang.org/tools/install)

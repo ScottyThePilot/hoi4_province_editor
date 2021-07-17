@@ -20,7 +20,7 @@ pub enum Problem {
   TooLargeBox(Extents),
   TooFewPixels(u64, Vector2<f64>),
   InvalidWidth,
-  InvalidHeight,
+  InvalidHeight
 }
 
 impl Problem {

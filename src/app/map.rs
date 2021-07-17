@@ -18,7 +18,7 @@ use crate::app::format::*;
 use crate::error::Error;
 use self::history::*;
 
-pub use self::bridge::Location;
+pub use self::bridge::{Location, IntoLocation};
 pub use self::history::History;
 pub use self::problems::Problem;
 

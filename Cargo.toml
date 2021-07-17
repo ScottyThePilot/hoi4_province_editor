@@ -14,7 +14,7 @@ ccl-fxhash = "3.0"
 chrono = "0.4"
 crossbeam = "0.8"
 glutin = "0.26"
-image = { version = "0.23", default-features = false, features = ["bmp"] }
+image = { version = "0.23", default-features = false, features = ["bmp", "png"] }
 itertools = "0.10"
 lazy_static = "1.4"
 native-dialog = "0.5"
@@ -26,6 +26,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 rusttype = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_multi = { version = "0.1", features = ["toml"] }
+thiserror = "1.0"
 # TODO: replace with thiserror
 util_macros = { git = "https://github.com/ScottyThePilot/util_macros" }
 vecmath = "1.0"
@@ -36,5 +37,3 @@ opt-level = 1
 
 [profile.release]
 opt-level = 3
-lto = "fat"
-codegen-units = 1

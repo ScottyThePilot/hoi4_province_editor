@@ -9,6 +9,7 @@ use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use std::collections::VecDeque;
 use std::time::{Instant, Duration};
 
+const TOOLBAR_PADDING: f64 = 19.0;
 const CURSOR: char = '\u{2588}';
 const MARGIN_SIZE: u32 = 8;
 const LINE_SPACING: f64 = 1.10;
@@ -100,14 +101,14 @@ impl Console {
     };
   }
 
-  pub fn push<S: Into<String>>(&mut self, text: S) {
-    self.messages.push_back(ConsoleMessage::new(text.into(), ConsoleColor::User, self.max_lifetime));
+  pub fn push<S: ToString>(&mut self, text: S) {
+    self.messages.push_back(ConsoleMessage::new(text.to_string(), ConsoleColor::User, self.max_lifetime));
   }
 
-  pub fn push_system<S: Into<String>>(&mut self, text: Result<S, S>) {
+  pub fn push_system<S: ToString>(&mut self, text: Result<S, S>) {
     let (text, color) = match text {
-      Ok(t) => (t.into(), ConsoleColor::System),
-      Err(t) => (t.into(), ConsoleColor::SystemError)
+      Ok(t) => (t.to_string(), ConsoleColor::System),
+      Err(t) => (t.to_string(), ConsoleColor::SystemError)
     };
 
     self.messages.push_back(ConsoleMessage::new(text, color, self.max_lifetime));
@@ -124,11 +125,11 @@ pub struct ConsoleHandle<'c> {
 }
 
 impl<'c> ConsoleHandle<'c> {
-  pub fn push<S: Into<String>>(&mut self, text: S) {
+  pub fn push<S: ToString>(&mut self, text: S) {
     self.inner.push(text)
   }
 
-  pub fn push_system<S: Into<String>>(&mut self, text: Result<S, S>) {
+  pub fn push_system<S: ToString>(&mut self, text: Result<S, S>) {
     self.inner.push_system(text)
   }
 }
@@ -291,7 +292,7 @@ fn draw_console(
         .expect("unable to draw text");
     };
   } else {
-    let height = console.len(now) as f64 * FONT_HEIGHT + PADDING;
+    let height = console.len(now) as f64 * FONT_HEIGHT + PADDING + TOOLBAR_PADDING;
     let height = height.min(WINDOW_HEIGHT_F - PADDING);
 
     for (i, (text, color)) in console.iter(now).enumerate() {

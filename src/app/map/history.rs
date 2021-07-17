@@ -59,7 +59,7 @@ impl<Op: MapOperation> MapChange<Op> {
     self.before.apply(map);
     Commit {
       view_mode: self.before.view_mode(),
-      extents: self.before.extents(),
+      extents: self.before.extents()
     }
   }
 
@@ -67,7 +67,7 @@ impl<Op: MapOperation> MapChange<Op> {
     self.after.apply(map);
     Commit {
       view_mode: self.after.view_mode(),
-      extents: self.after.extents(),
+      extents: self.after.extents()
     }
   }
 }

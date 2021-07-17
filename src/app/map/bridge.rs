@@ -13,7 +13,6 @@ use crate::util::{fx_hash_map_with_capacity, fx_hash_set_with_capacity};
 use crate::util::random::RandomHandle;
 use crate::util::uord::UOrd;
 
-use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::collections::hash_map::Entry;
 use std::io::{self, Cursor, Read, Write};
@@ -39,6 +38,13 @@ pub enum Location {
 }
 
 impl Location {
+  pub fn as_path(&self) -> &Path {
+    match self {
+      Location::Zip(path) => path,
+      Location::Dir(path) => path
+    }
+  }
+
   fn from_path(mut path: PathBuf) -> Result<Self, Error> {
     if let Some(ext) = path.extension() {
       let name = path.file_name().expect("infallible");
@@ -58,44 +64,46 @@ impl Location {
   }
 }
 
-impl TryFrom<&str> for Location {
-  type Error = Error;
-
-  fn try_from(path: &str) -> Result<Location, Error> {
-    Location::from_path(PathBuf::from(path))
-  }
-}
-
-impl TryFrom<String> for Location {
-  type Error = Error;
-
-  fn try_from(path: String) -> Result<Location, Error> {
-    Location::from_path(PathBuf::from(path))
-  }
-}
-
-impl TryFrom<&Path> for Location {
-  type Error = Error;
-
-  fn try_from(path: &Path) -> Result<Location, Error> {
-    Location::from_path(path.to_owned())
-  }
-}
-
-impl TryFrom<PathBuf> for Location {
-  type Error = Error;
-
-  fn try_from(path: PathBuf) -> Result<Location, Error> {
-    Location::from_path(path)
-  }
-}
-
 impl fmt::Display for Location {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
       Location::Zip(path) => write!(f, "archive {}", path.display()),
       Location::Dir(path) => write!(f, "directory {}", path.display())
     }
+  }
+}
+
+pub trait IntoLocation {
+  fn into_location(self) -> Result<Location, Error>;
+}
+
+impl IntoLocation for Location {
+  fn into_location(self) -> Result<Location, Error> {
+    Ok(self)
+  }
+}
+
+impl IntoLocation for &str {
+  fn into_location(self) -> Result<Location, Error> {
+    Location::from_path(PathBuf::from(self))
+  }
+}
+
+impl IntoLocation for String {
+  fn into_location(self) -> Result<Location, Error> {
+    Location::from_path(PathBuf::from(self))
+  }
+}
+
+impl IntoLocation for &Path {
+  fn into_location(self) -> Result<Location, Error> {
+    Location::from_path(self.to_owned())
+  }
+}
+
+impl IntoLocation for PathBuf {
+  fn into_location(self) -> Result<Location, Error> {
+    Location::from_path(self)
   }
 }
 

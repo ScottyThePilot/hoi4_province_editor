@@ -14,6 +14,7 @@ extern crate rand;
 extern crate rusttype;
 extern crate serde;
 extern crate serde_multi;
+extern crate thiserror;
 extern crate util_macros;
 extern crate vecmath;
 extern crate zip;

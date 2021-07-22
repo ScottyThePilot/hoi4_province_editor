@@ -38,16 +38,18 @@ impl ParseCsv<10> for Adjacency {
   const HEADER_LINE: Option<&'static str> = Some(HEADER_LINE);
   const FOOTER_LINE: Option<&'static str> = Some(FOOTER_LINE);
 
-  fn parse_line(line: [String; 10]) -> Option<Self> {
+  type Error = ParseError;
+
+  fn parse_line(line: [String; 10]) -> Result<Self, Self::Error> {
     let [from_id, to_id, kind, through, start_x, start_y, stop_x, stop_y, rule_name, comment] = line;
 
-    Some(Adjacency {
-      from_id: from_id.parse().ok()?,
-      to_id: to_id.parse().ok()?,
-      kind: kind.to_lowercase().parse().ok()?,
-      through: parse_maybe_num(&through).ok()?,
-      start: parse_maybe_pos(&start_x, &start_y).ok()?,
-      stop: parse_maybe_pos(&stop_x, &stop_y).ok()?,
+    Ok(Adjacency {
+      from_id: from_id.parse()?,
+      to_id: to_id.parse()?,
+      kind: kind.to_lowercase().parse()?,
+      through: parse_maybe_num(&through)?,
+      start: parse_maybe_pos(&start_x, &start_y)?,
+      stop: parse_maybe_pos(&stop_x, &stop_y)?,
       rule_name,
       comment
     })
@@ -119,7 +121,7 @@ impl FromStr for AdjacencyKind {
       "large_river" => Ok(AdjacencyKind::LargeRiver),
       "sea" => Ok(AdjacencyKind::Sea),
       "impassable" => Ok(AdjacencyKind::Impassable),
-      _ => Err(ParseError)
+      _ => Err(ParseError::InvalidAdjacencyKind)
     }
   }
 }

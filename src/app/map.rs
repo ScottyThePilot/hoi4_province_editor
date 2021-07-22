@@ -6,6 +6,7 @@ mod problems;
 use crossbeam::thread::scope;
 use image::{Rgb, RgbImage, Rgba, RgbaImage, Pixel};
 use fxhash::{FxHashMap, FxHashSet};
+use rand::Rng;
 use serde::{Serialize, Deserialize};
 use vecmath::Vector2;
 
@@ -13,10 +14,8 @@ use crate::config::Config;
 use crate::util::fx_hash_map_with_capacity;
 use crate::util::XYIter;
 use crate::util::uord::UOrd;
-use crate::util::random::RandomHandle;
 use crate::app::format::*;
 use crate::error::Error;
-use self::history::*;
 
 pub use self::bridge::{Location, IntoLocation};
 pub use self::history::History;
@@ -31,13 +30,12 @@ pub type Color = [u8; 3];
 #[derive(Debug)]
 pub struct Bundle {
   pub map: Map,
-  pub config: Arc<Config>,
-  pub rng: RandomHandle
+  pub config: Arc<Config>
 }
 
 impl Bundle {
-  pub fn load(location: &Location, config: Arc<Config>, rng: RandomHandle) -> Result<Self, Error> {
-    self::bridge::load_bundle(location, config, rng)
+  pub fn load(location: &Location, config: Arc<Config>) -> Result<Self, Error> {
+    self::bridge::load_bundle(location, config)
   }
 
   pub fn save(&self, location: &Location) -> Result<(), Error> {
@@ -49,51 +47,35 @@ impl Bundle {
   }
 
   pub fn calculate_coastal_provinces(&mut self, history: &mut History) -> bool {
-    CalculateCoastalProvinces::new(self)
-      .map(|op| op.insert(&mut self.map, history))
-      .is_some()
+    self::history::calculate_coastal_provinces(self, history)
   }
 
   pub fn calculate_recolor_map(&mut self, history: &mut History) -> bool {
-    CalculateRecolorMap::new(self)
-      .map(|op| op.insert(&mut self.map, history))
-      .is_some()
+    self::history::calculate_recolor_map(self, history)
   }
 
   pub fn paint_province_kind(&mut self, history: &mut History, pos: Vector2<u32>, kind: impl Into<ProvinceKind>) -> Option<Extents> {
-    PaintProvinceMeta::new_change_kind(self, self.map.get_color_at(pos), kind.into())
-      .map(|op| op.insert(&mut self.map, history))
+    self::history::paint_province_kind(self, history, pos, kind)
   }
 
   pub fn paint_province_terrain(&mut self, history: &mut History, pos: Vector2<u32>, terrain: String) -> Option<Extents> {
-    PaintProvinceMeta::new_change_terrain(self, self.map.get_color_at(pos), terrain)
-      .map(|op| op.insert(&mut self.map, history))
+    self::history::paint_province_terrain(self, history, pos, terrain)
   }
 
   pub fn paint_province_continent(&mut self, history: &mut History, pos: Vector2<u32>, continent: u16) -> Option<Extents> {
-    PaintProvinceContinent::new(self, self.map.get_color_at(pos), continent)
-      .map(|op| op.insert(&mut self.map, history))
+    self::history::paint_province_continent(self, history, pos, continent)
   }
 
   pub fn paint_entire_province(&mut self, history: &mut History, pos: Vector2<u32>, fill_color: Color) -> Option<Extents> {
-    PaintRecolorProvince::new(self, self.map.get_color_at(pos), fill_color)
-      .map(|op| op.insert(&mut self.map, history))
+    self::history::paint_entire_province(self, history, pos, fill_color)
   }
 
   pub fn paint_pixel_area(&mut self, history: &mut History, pos: Vector2<f64>, radius: f64, color: Color) -> Option<Extents> {
-    PaintPixelArea::new(self, pos, radius, color)
-      .map(|op| op.insert(&mut self.map, history))
+    self::history::paint_pixel_area(self, history, pos, radius, color)
   }
 
   pub fn paint_pixel(&mut self, history: &mut History, pos: Vector2<u32>, color: Color) -> Option<Extents> {
-    PaintPixel::new(self, pos, color)
-      .map(|op| op.insert(&mut self.map, history))
-  }
-
-  pub fn painting_stop(&mut self, history: &mut History) {
-    if let Some(step) = history.last_step_mut() {
-      step.finish();
-    };
+    self::history::paint_pixel(self, history, pos, color)
   }
 
   pub fn texture_buffer_color(&self) -> RgbaImage {
@@ -138,7 +120,7 @@ impl Bundle {
     })
   }
 
-  // The 4096 continent cap is due to the way `RandomHandle::sequence_color` works,
+  // The 4096 continent cap is due to the way `random::sequence_color` works,
   // pre-generating the colors for each ID is much more efficient and avoids the
   // overhead of locking mechanisms of a generate-as-you-go type setup.
   // Besides, a map with 4096 continents sounds a bit absurd.
@@ -146,7 +128,7 @@ impl Bundle {
   pub fn texture_buffer_continent(&self) -> RgbaImage {
     self.map.texture_buffer(|which| {
       let continent = self.map.get_province(which).continent;
-      self.rng.sequence_color(continent as usize)
+      crate::util::random::sequence_color(continent as usize)
         .expect("only a maximum of 4096 provinces are supported")
     })
   }
@@ -154,7 +136,7 @@ impl Bundle {
   pub fn texture_buffer_selective_continent(&self, extents: Extents) -> RgbaImage {
     self.map.texture_buffer_selective(extents, |which| {
       let continent = self.map.get_province(which).continent;
-      self.rng.sequence_color(continent as usize)
+      crate::util::random::sequence_color(continent as usize)
         .expect("only a maximum of 4096 provinces are supported")
     })
   }
@@ -190,7 +172,7 @@ impl Bundle {
   }
 
   pub fn random_color_pure(&self, kind: ProvinceKind) -> Color {
-    random_color_pure(&self.map.province_data_map, &self.rng, kind)
+    random_color_pure(&self.map.province_data_map, kind)
   }
 }
 
@@ -603,7 +585,7 @@ impl FromStr for ProvinceKind {
       "sea" => Ok(ProvinceKind::Sea),
       "lake" => Ok(ProvinceKind::Lake),
       "unknown" => Ok(ProvinceKind::Unknown),
-      _ => Err(ParseError)
+      _ => Err(ParseError::InvalidDefinitionKind)
     }
   }
 }
@@ -663,7 +645,7 @@ fn p4(color: Color) -> [u8; 4] {
   [color[0], color[1], color[2], 0xff]
 }
 
-fn random_color(rng: &RandomHandle, kind: ProvinceKind) -> Color {
+fn random_color<R: Rng>(rng: &mut R, kind: ProvinceKind) -> Color {
   use crate::util::hsl::hsl_to_rgb;
 
   let lightness: f64 = match kind {
@@ -681,10 +663,11 @@ fn random_color(rng: &RandomHandle, kind: ProvinceKind) -> Color {
   ])
 }
 
-fn random_color_pure(collection: &impl ColorKeyable, rng: &RandomHandle, kind: ProvinceKind) -> Color {
-  let mut color = random_color(rng, kind);
+fn random_color_pure(collection: &impl ColorKeyable, kind: ProvinceKind) -> Color {
+  let mut rng = rand::thread_rng();
+  let mut color = random_color(&mut rng, kind);
   while collection.contains_color(color) || color == [0x00; 3] {
-    color = random_color(rng, kind);
+    color = random_color(&mut rng, kind);
   };
 
   color

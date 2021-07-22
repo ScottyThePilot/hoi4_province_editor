@@ -1,19 +1,18 @@
 use fxhash::FxHashSet;
 use graphics::Transformed;
 use graphics::context::Context;
-use graphics::color::WHITE;
 use graphics::ellipse::Ellipse;
 use itertools::Itertools;
 use opengl_graphics::{Filter, GlGraphics, Texture, TextureSettings};
 use vecmath::{Matrix2x3, Vector2};
 
-use super::map::*;
 use super::FontGlyphCache;
+use super::colors;
+use super::map::*;
 use super::format::DefinitionKind;
 use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use crate::config::Config;
-use super::console::{ConsoleHandle, FONT_SIZE};
-use crate::util::random::RandomHandle;
+use super::alerts::{Alerts, FONT_SIZE};
 use crate::util::stringify_color;
 use crate::error::Error;
 
@@ -22,6 +21,7 @@ use std::sync::Arc;
 const ZOOM_SENSITIVITY: f64 = 0.125;
 const WINDOW_CENTER: Vector2<f64> = [WINDOW_WIDTH as f64 / 2.0, WINDOW_HEIGHT as f64 / 2.0];
 
+#[allow(missing_debug_implementations)]
 pub struct Canvas {
   bundle: Bundle,
   history: History,
@@ -38,18 +38,13 @@ pub struct Canvas {
 impl Canvas {
   pub fn load(location: Location, config: Arc<Config>) -> Result<Canvas, Error> {
     let history = History::new(config.max_undo_states);
-    let bundle = Bundle::load(&location, config, RandomHandle::new())?;
+    let bundle = Bundle::load(&location, config)?;
     let texture_settings = TextureSettings::new().mag(Filter::Nearest);
     let texture = Texture::from_image(&bundle.texture_buffer_color(), &texture_settings);
     // The test map is very small with large ocean provinces, the 'too large box' errors go nuts
     let problems = if cfg!(debug_assertions) { Vec::new() } else { bundle.generate_problems() };
     let unknown_terrains = bundle.search_unknown_terrains();
     let camera = Camera::new(&texture);
-
-    //if let Some(unknown_terrains) = &unknown_terrains {
-    //  let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
-    //  return Err(format!("Unknown terrains present, not found in config: {}", unknown_terrains).into());
-    //};
 
     Ok(Canvas {
       bundle,
@@ -94,7 +89,7 @@ impl Canvas {
     };
 
     if let (ViewMode::Color, Some(cursor_pos)) = (self.view_mode, self.camera.cursor_pos) {
-      let ellipse = Ellipse::new_border(WHITE, 0.5).resolution(16);
+      let ellipse = Ellipse::new_border(colors::WHITE, 0.5).resolution(16);
       let radius = self.brush.radius * self.camera.scale_factor();
       let transform = ctx.transform.trans_pos(cursor_pos);
       ellipse.draw_from_to([radius, radius], [-radius, -radius], &Default::default(), transform, gl);
@@ -103,7 +98,7 @@ impl Canvas {
     if camera_info {
       let camera_info = self.camera_info();
       let transform = ctx.transform.trans(8.0, WINDOW_HEIGHT as f64 - 8.0);
-      graphics::text(WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
+      graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
         .expect("unable to draw text");
     };
   }
@@ -145,13 +140,13 @@ impl Canvas {
     self.refresh();
   }
 
-  pub fn display_problems(&mut self, mut console: ConsoleHandle) {
+  pub fn display_problems(&mut self, alerts: &mut Alerts) {
     self.problems = self.bundle.generate_problems();
     if self.problems.is_empty() {
-      console.push_system(Ok("No map problems detected"));
+      alerts.push_system(Ok("No map problems detected"));
     } else {
       for problem in self.problems.iter() {
-        console.push_system(Ok(format!("Problem: {}", problem)));
+        alerts.push_system(Ok(format!("Problem: {}", problem)));
       };
     };
   }
@@ -160,7 +155,7 @@ impl Canvas {
     &mut self.brush
   }
 
-  pub fn cycle_brush(&mut self, mut console: ConsoleHandle) {
+  pub fn cycle_brush(&mut self, alerts: &mut Alerts) {
     match self.view_mode {
       ViewMode::Color => {
         let kind = self.brush.kind_brush
@@ -172,52 +167,52 @@ impl Canvas {
           .unwrap_or(ProvinceKind::Land);
         let color = self.bundle.random_color_pure(kind);
         self.brush.color_brush = Some(color);
-        console.push_system(Ok(format!("Brush set to color {}", stringify_color(color))))
+        alerts.push_system(Ok(format!("Brush set to color {}", stringify_color(color))))
       },
       ViewMode::Kind => {
         let kind = self.brush.kind_brush;
         let kind = self.bundle.config.cycle_kinds(kind);
         self.brush.kind_brush = Some(kind);
-        console.push_system(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
+        alerts.push_system(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
       },
       ViewMode::Terrain => {
         let terrain = self.brush.terrain_brush.as_deref();
         let terrain = self.bundle.config.cycle_terrains(terrain);
-        console.push_system(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
+        alerts.push_system(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
         self.brush.terrain_brush = Some(terrain);
       },
       ViewMode::Continent => {
         let continent = self.brush.continent_brush;
         let continent = self.bundle.config.cycle_continents(continent);
         self.brush.continent_brush = Some(continent);
-        console.push_system(Ok(format!("Brush set to continent {}", continent)));
+        alerts.push_system(Ok(format!("Brush set to continent {}", continent)));
       },
       ViewMode::Coastal => ()
     };
   }
 
-  pub fn pick_brush(&mut self, mut console: ConsoleHandle) {
+  pub fn pick_brush(&mut self, alerts: &mut Alerts) {
     if let Some(pos) = self.camera.cursor_rel_int() {
       let color = self.bundle.map.get_color_at(pos);
       let province_data = self.bundle.map.get_province_at(pos);
       match self.view_mode {
         ViewMode::Color => {
           self.brush.color_brush = Some(color);
-          console.push_system(Ok(format!("Picked color {}", stringify_color(color))));
+          alerts.push_system(Ok(format!("Picked color {}", stringify_color(color))));
         },
         ViewMode::Kind => if let Some(kind) = province_data.kind.to_definition_kind() {
           self.brush.kind_brush = Some(kind);
-          console.push_system(Ok(format!("Picked type {}", kind.to_str().to_uppercase())));
+          alerts.push_system(Ok(format!("Picked type {}", kind.to_str().to_uppercase())));
         },
         ViewMode::Terrain => if province_data.terrain != "unknown" {
           let terrain = province_data.terrain.as_str();
           self.brush.terrain_brush = Some(terrain.to_owned());
-          console.push_system(Ok(format!("Picked terrain {}", terrain.to_uppercase())));
+          alerts.push_system(Ok(format!("Picked terrain {}", terrain.to_uppercase())));
         },
         ViewMode::Continent => {
           let continent = province_data.continent;
           self.brush.continent_brush = Some(continent);
-          console.push_system(Ok(format!("Picked continent {}", continent)));
+          alerts.push_system(Ok(format!("Picked continent {}", continent)));
         },
         ViewMode::Coastal => ()
       };
@@ -253,7 +248,7 @@ impl Canvas {
   }
 
   pub fn paint_stop(&mut self) {
-    self.bundle.painting_stop(&mut self.history);
+    self.history.finish_last_step();
   }
 
   pub fn change_brush_radius(&mut self, d: f64) {
@@ -265,10 +260,10 @@ impl Canvas {
     };
   }
 
-  pub fn set_view_mode(&mut self, mut console: ConsoleHandle, view_mode: ViewMode) {
+  pub fn set_view_mode(&mut self, alerts: &mut Alerts, view_mode: ViewMode) {
     if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, &self.unknown_terrains) {
       let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
-      console.push_system(Err(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains)));
+      alerts.push_system(Err(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains)));
     } else if view_mode != self.view_mode {
       self.view_mode = view_mode;
       self.refresh();

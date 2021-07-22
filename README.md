@@ -46,7 +46,7 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - `Shift-R` will randomly re-color all of the provinces on the map
 - `Shift-P` will calculate and display symbols indicating map errors/warnings
 - `H` resets the camera view
-- The tilde key on QWERTY keyboards will open/close the console, though the console doesn't do anything yet
+- `Tab` show all recent informative alert messages
 
 ## Features
 - Map viewing, editing, manupulation, importing and exporting
@@ -56,7 +56,6 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - Preserving province IDs (in order to not break maps)
 
 ## Planned Features
-- Console for issuing more complex instructions
 - Support for creating/editing adjacencies
 - Support for states/strategic regions
 - Exporting terrain or land type view modes for MapGen/ProvGen

@@ -31,16 +31,18 @@ impl ParseCsv<8> for Definition {
   const HEADER_LINE: Option<&'static str> = Some(HEADER_LINE);
   const FOOTER_LINE: Option<&'static str> = None;
 
-  fn parse_line(line: [String; 8]) -> Option<Self> {
+  type Error = ParseError;
+
+  fn parse_line(line: [String; 8]) -> Result<Self, Self::Error> {
     let [id, r, g, b, kind, coastal, terrain, continent] = line;
 
-    Some(Definition {
-      id: id.parse().ok()?,
-      rgb: [r.parse().ok()?, g.parse().ok()?, b.parse().ok()?],
-      kind: kind.to_lowercase().parse().ok()?,
-      coastal: parse_maybe_bool(&coastal).ok()?,
+    Ok(Definition {
+      id: id.parse()?,
+      rgb: [r.parse()?, g.parse()?, b.parse()?],
+      kind: kind.to_lowercase().parse()?,
+      coastal: parse_maybe_bool(&coastal)?,
       terrain: terrain.to_lowercase(),
-      continent: continent.parse().ok()?
+      continent: continent.parse()?
     })
   }
 }
@@ -104,7 +106,7 @@ impl FromStr for DefinitionKind {
       "land" => Ok(DefinitionKind::Land),
       "sea" => Ok(DefinitionKind::Sea),
       "lake" => Ok(DefinitionKind::Lake),
-      _ => Err(ParseError)
+      _ => Err(ParseError::InvalidDefinitionKind)
     }
   }
 }
@@ -130,9 +132,9 @@ impl fmt::Display for DefinitionKind {
 }
 
 fn parse_maybe_bool(b: &str) -> Result<bool, ParseBoolError> {
-  match b.to_lowercase().as_str() {
+  match b {
     "0" => Ok(false),
     "1" => Ok(true),
-    b => b.parse::<bool>()
+    b => b.to_lowercase().parse::<bool>()
   }
 }

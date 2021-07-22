@@ -1,7 +1,6 @@
 use fxhash::FxHashMap;
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
-use serde_multi::formats::toml;
 use thiserror::Error;
 
 use crate::app::map::Color;
@@ -130,7 +129,7 @@ pub enum LoadConfigError {
   #[error(transparent)]
   IoError(#[from] std::io::Error),
   #[error(transparent)]
-  FormatError(#[from] serde_multi::Error),
+  FormatError(#[from] toml::de::Error),
   #[error("{0}")]
   Custom(String)
 }

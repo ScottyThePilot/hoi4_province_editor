@@ -11,6 +11,7 @@ use crate::app::map::{Color, Extents};
 
 use std::ops::Range;
 
+#[derive(Debug, Clone)]
 pub struct XYIter {
   x_range: Range<u32>,
   y_range: Range<u32>,

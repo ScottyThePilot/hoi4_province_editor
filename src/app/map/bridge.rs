@@ -10,7 +10,6 @@ use crate::app::format::{Adjacency, Definition, ParseCsv};
 use crate::config::Config;
 use crate::error::Error;
 use crate::util::{fx_hash_map_with_capacity, fx_hash_set_with_capacity};
-use crate::util::random::RandomHandle;
 use crate::util::uord::UOrd;
 
 use std::path::{Path, PathBuf};
@@ -107,7 +106,7 @@ impl IntoLocation for PathBuf {
   }
 }
 
-pub(super) fn load_bundle(location: &Location, config: Arc<Config>, rng: RandomHandle) -> Result<Bundle, Error> {
+pub(super) fn load_bundle(location: &Location, config: Arc<Config>) -> Result<Bundle, Error> {
   let (province_image, definition_table, adjacencies_table) = match location {
     Location::Zip(path) => {
       let mut zip = ZipArchive::new(open_file(path)?)?;
@@ -126,15 +125,14 @@ pub(super) fn load_bundle(location: &Location, config: Arc<Config>, rng: RandomH
     }
   };
 
-  Ok(construct_map_data(province_image, definition_table, adjacencies_table, config, rng))
+  Ok(construct_map_data(province_image, definition_table, adjacencies_table, config))
 }
 
 fn construct_map_data(
   province_image: RgbImage,
   definition_table: Vec<Definition>,
   adjacencies_table: Vec<Adjacency>,
-  config: Arc<Config>,
-  rng: RandomHandle
+  config: Arc<Config>
 ) -> Bundle {
   let mut color_buffer = province_image;
 
@@ -192,8 +190,7 @@ fn construct_map_data(
     recolor_everything(
       &mut color_buffer,
       &mut province_data_map,
-      &mut connection_data_map,
-      &rng
+      &mut connection_data_map
     );
   };
 
@@ -206,23 +203,21 @@ fn construct_map_data(
       connection_data_map,
       id_data
     },
-    config,
-    rng
+    config
   }
 }
 
 pub(super) fn recolor_everything(
   color_buffer: &mut RgbImage,
   province_data_map: &mut FxHashMap<Color, ProvinceData>,
-  connection_data_map: &mut FxHashMap<UOrd<Color>, ConnectionData>,
-  rng: &RandomHandle
+  connection_data_map: &mut FxHashMap<UOrd<Color>, ConnectionData>
 ) {
   let mut colors_list = fx_hash_set_with_capacity(province_data_map.len());
   let mut replacement_map = fx_hash_map_with_capacity(province_data_map.len());
 
   let mut new_province_data_map = fx_hash_map_with_capacity(province_data_map.len());
   for (previous_color, province_data) in province_data_map.drain() {
-    let color = random_color_pure(&colors_list, &rng, province_data.kind);
+    let color = random_color_pure(&colors_list, province_data.kind);
     let opt = colors_list.insert(color);
     debug_assert!(opt);
     let opt = replacement_map.insert(previous_color, color);

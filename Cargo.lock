@@ -754,6 +754,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "native-dialog",
+ "once_cell",
  "piston",
  "piston2d-graphics",
  "piston2d-opengl_graphics",
@@ -761,9 +762,8 @@ dependencies = [
  "rand",
  "rusttype",
  "serde",
- "serde_multi",
  "thiserror",
- "util_macros",
+ "toml",
  "vecmath",
  "zip",
 ]
@@ -1242,9 +1242,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.7.2"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af8b08b04175473088b46763e51ee54da5f9a164bc162f615b91bc179dbf15a3"
+checksum = "692fcb63b64b1758029e0a96ee63e049ce8c5948587f2f7208df04625e5f6b56"
 
 [[package]]
 name = "osmesa-sys"
@@ -1646,16 +1646,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_multi"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72a471c760378a595e7b755a196474071c590a2c1b2c338750fa96f304817f47"
-dependencies = [
- "serde",
- "toml",
-]
-
-[[package]]
 name = "shader_version"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1802,11 +1792,6 @@ name = "unicode-xid"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
-
-[[package]]
-name = "util_macros"
-version = "0.1.0"
-source = "git+https://github.com/ScottyThePilot/util_macros#7fa43d23086a61c7ba1c0203a6c623382ca95b84"
 
 [[package]]
 name = "vecmath"

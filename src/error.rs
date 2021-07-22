@@ -1,5 +1,8 @@
 use thiserror::Error;
 
+use crate::util::csv::CsvError;
+use crate::app::format::ParseError;
+
 #[derive(Debug, Error)]
 pub enum Error {
   #[error(transparent)]
@@ -9,7 +12,7 @@ pub enum Error {
   #[error(transparent)]
   Image(#[from] image::ImageError),
   #[error(transparent)]
-  Csv(#[from] crate::util::csv::CsvError),
+  Csv(#[from] CsvError<ParseError>),
   #[error("{0}")]
   Custom(String)
 }
@@ -25,5 +28,3 @@ impl From<&str> for Error {
     Error::Custom(s.to_owned())
   }
 }
-
-pub type Result<T = ()> = std::result::Result<T, Error>;

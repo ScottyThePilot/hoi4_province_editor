@@ -42,7 +42,7 @@ fn root_dir() -> io::Result<PathBuf> {
     return Ok(PathBuf::from(manifest_dir));
   };
 
-  let mut current_exe = env::current_exe()?.canonicalize()?;
+  let mut current_exe = dunce::canonicalize(env::current_exe()?)?;
 
   if current_exe.pop() {
     return Ok(current_exe);

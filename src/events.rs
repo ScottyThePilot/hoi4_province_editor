@@ -11,13 +11,13 @@ use std::path::PathBuf;
 pub trait EventHandler: Sized {
   fn new(gl: &mut GlGraphics) -> Self;
   fn on_init(&mut self) {}
-  fn on_render(&mut self, ctx: Context, gl: &mut GlGraphics);
+  fn on_render(&mut self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics);
   fn on_update(&mut self, dt: f32);
-  fn on_key(&mut self, _key: Key, _state: bool, _mods: KeyMods) {}
-  fn on_mouse(&mut self, _button: MouseButton, _state: bool, _mods: KeyMods) {}
+  fn on_key(&mut self, _key: Key, _state: bool, _mods: KeyMods, _pos: Option<Vector2<f64>>) {}
+  fn on_mouse(&mut self, _button: MouseButton, _state: bool, _mods: KeyMods, _pos: Vector2<f64>) {}
   fn on_mouse_position(&mut self, _pos: Vector2<f64>) {}
   fn on_mouse_relative(&mut self, _rel: Vector2<f64>) {}
-  fn on_mouse_scroll(&mut self, _s: Vector2<f64>, _mods: KeyMods) {}
+  fn on_mouse_scroll(&mut self, _s: Vector2<f64>, _mods: KeyMods, _pos: Vector2<f64>) {}
   fn on_file_drop(&mut self, _path: PathBuf) {}
   fn on_unfocus(&mut self) {}
   fn on_close(self) {}
@@ -31,6 +31,7 @@ pub fn launch<H: EventHandler>(window: &mut GlutinWindow, gl: &mut GlGraphics) {
   let mut event_handler = H::new(gl);
   let mut mods = KeyMods::default();
   let mut cursor = CursorIcon::Default;
+  let mut cursor_pos: Option<Vector2<f64>> = None;
   let mut init = true;
 
   let mut events = Events::new(EventSettings::new());
@@ -39,7 +40,7 @@ pub fn launch<H: EventHandler>(window: &mut GlutinWindow, gl: &mut GlGraphics) {
       Event::Loop(loop_event) => match loop_event {
         Loop::Update(args) => event_handler.on_update(args.dt as f32),
         Loop::Render(args) => gl.draw(args.viewport(), |ctx, gl| {
-          event_handler.on_render(ctx, gl);
+          event_handler.on_render(ctx, cursor_pos, gl);
         }),
         Loop::AfterRender(_) if init => {
           event_handler.on_init();
@@ -52,15 +53,29 @@ pub fn launch<H: EventHandler>(window: &mut GlutinWindow, gl: &mut GlGraphics) {
           Button::Keyboard(Key::LShift) => mods.shift = state(args.state),
           Button::Keyboard(Key::LCtrl) => mods.ctrl = state(args.state),
           Button::Keyboard(Key::LAlt) => mods.alt = state(args.state),
-          Button::Keyboard(key) => event_handler.on_key(key, state(args.state), mods),
-          Button::Mouse(button) => event_handler.on_mouse(button, state(args.state), mods),
+          Button::Keyboard(key) => event_handler.on_key(key, state(args.state), mods, cursor_pos),
+          Button::Mouse(button) => if let Some(cursor_pos) = cursor_pos {
+            event_handler.on_mouse(button, state(args.state), mods, cursor_pos)
+          },
           _ => ()
         },
-        Input::Move(Motion::MouseCursor(pos)) => event_handler.on_mouse_position(pos),
-        Input::Move(Motion::MouseRelative(rel)) => event_handler.on_mouse_relative(rel),
-        Input::Move(Motion::MouseScroll(s)) => event_handler.on_mouse_scroll(s, mods),
-        Input::FileDrag(FileDrag::Drop(path)) => event_handler.on_file_drop(path),
-        Input::Focus(false) | Input::Cursor(false) => event_handler.on_unfocus(),
+        Input::Move(Motion::MouseCursor(pos)) => {
+          cursor_pos = Some(pos);
+          event_handler.on_mouse_position(pos);
+        },
+        Input::Move(Motion::MouseRelative(rel)) => {
+          event_handler.on_mouse_relative(rel);
+        },
+        Input::Move(Motion::MouseScroll(s)) => {
+          event_handler.on_mouse_scroll(s, mods, cursor_pos.unwrap_or([0.0, 0.0]));
+        },
+        Input::FileDrag(FileDrag::Drop(path)) => {
+          event_handler.on_file_drop(path);
+        },
+        Input::Focus(false) | Input::Cursor(false) => {
+          cursor_pos = None;
+          event_handler.on_unfocus();
+        },
         Input::Close(_) => {
           event_handler.on_close();
           break;

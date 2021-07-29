@@ -1,11 +1,11 @@
 use fxhash::FxHashMap;
-use graphics::color::RED;
 use graphics::context::Context;
 use graphics::rectangle::Rectangle;
 use graphics::ellipse::Ellipse;
 use opengl_graphics::GlGraphics;
 use vecmath::{Matrix2x3, Vector2};
 
+use crate::app::colors;
 use super::{Bundle, Map, Extents};
 use crate::util::XYIter;
 
@@ -69,19 +69,21 @@ impl fmt::Display for Problem {
 
 fn draw_cross(pos: Vector2<f64>, transform: Matrix2x3<f64>, display_matrix: Matrix2x3<f64>, gl: &mut GlGraphics) {
   let [x, y] = vecmath::row_mat2x3_transform_pos2(display_matrix, pos);
-  graphics::line_from_to(RED, 2.0, [x - 8.0, y - 8.0], [x + 8.0, y + 8.0], transform, gl);
-  graphics::line_from_to(RED, 2.0, [x - 8.0, y + 8.0], [x + 8.0, y - 8.0], transform, gl);
+  graphics::line_from_to(colors::PROBLEM, 2.0, [x - 8.0, y - 8.0], [x + 8.0, y + 8.0], transform, gl);
+  graphics::line_from_to(colors::PROBLEM, 2.0, [x - 8.0, y + 8.0], [x + 8.0, y - 8.0], transform, gl);
 }
 
 fn draw_dot(pos: Vector2<f64>, transform: Matrix2x3<f64>, display_matrix: Matrix2x3<f64>, gl: &mut GlGraphics) {
   let [x, y] = vecmath::row_mat2x3_transform_pos2(display_matrix, pos);
-  Ellipse::new(RED).draw_from_to([x - 4.0, y - 4.0], [x + 4.0, y + 4.0], &Default::default(), transform, gl);
+  Ellipse::new(colors::PROBLEM)
+    .draw_from_to([x - 4.0, y - 4.0], [x + 4.0, y + 4.0], &Default::default(), transform, gl);
 }
 
 fn draw_box(bounds: [Vector2<f64>; 2], transform: Matrix2x3<f64>, display_matrix: Matrix2x3<f64>, gl: &mut GlGraphics) {
   let lower = vecmath::row_mat2x3_transform_pos2(display_matrix, bounds[0]);
   let upper = vecmath::row_mat2x3_transform_pos2(display_matrix, bounds[1]);
-  Rectangle::new_border(RED, 1.0).draw_from_to(lower, upper, &Default::default(), transform, gl);
+  Rectangle::new_border(colors::PROBLEM, 1.0)
+    .draw_from_to(lower, upper, &Default::default(), transform, gl);
 }
 
 

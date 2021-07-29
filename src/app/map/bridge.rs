@@ -351,7 +351,7 @@ fn deconstruct_map_data_preserve_ids(bundle: &Bundle) -> Result<MapData, Error> 
     // Loop through the sparse definitions table until you find an empty spot
     for (id, slot) in sparse_definitions_table.iter_mut().enumerate().rev() {
       let id = id as u32 + 1;
-      if let None = slot {
+      if slot.is_none() {
         // Insert the current definition into the sparse definitions table
         if outlier_definition.id != id {
           if outlier_definition.id == 0 {

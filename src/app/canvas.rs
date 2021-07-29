@@ -6,13 +6,12 @@ use itertools::Itertools;
 use opengl_graphics::{Filter, GlGraphics, Texture, TextureSettings};
 use vecmath::{Matrix2x3, Vector2};
 
-use super::FontGlyphCache;
-use super::colors;
+use super::{colors, FontGlyphCache, FONT_SIZE};
 use super::map::*;
 use super::format::DefinitionKind;
 use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use crate::config::Config;
-use super::alerts::{Alerts, FONT_SIZE};
+use super::alerts::Alerts;
 use crate::util::stringify_color;
 use crate::error::Error;
 
@@ -80,7 +79,7 @@ impl Canvas {
     Arc::clone(&self.bundle.config)
   }
 
-  pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, camera_info: bool, gl: &mut GlGraphics) {
+  pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     let transform = ctx.transform.append_transform(self.camera.display_matrix);
     graphics::image(&self.texture, transform, gl);
 
@@ -88,19 +87,18 @@ impl Canvas {
       problem.draw(ctx, self.camera.display_matrix, gl);
     };
 
-    if let (ViewMode::Color, Some(cursor_pos)) = (self.view_mode, self.camera.cursor_pos) {
-      let ellipse = Ellipse::new_border(colors::WHITE, 0.5).resolution(16);
+    if let (ViewMode::Color, Some(cursor_pos)) = (self.view_mode, cursor_pos) {
+      let color = if self.brush.color_brush.is_some() { colors::WHITE } else { colors::WHITE_T };
+      let ellipse = Ellipse::new_border(color, 0.5).resolution(16);
       let radius = self.brush.radius * self.camera.scale_factor();
       let transform = ctx.transform.trans_pos(cursor_pos);
       ellipse.draw_from_to([radius, radius], [-radius, -radius], &Default::default(), transform, gl);
     };
 
-    if camera_info {
-      let camera_info = self.camera_info();
-      let transform = ctx.transform.trans(8.0, WINDOW_HEIGHT as f64 - 8.0);
-      graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
-        .expect("unable to draw text");
-    };
+    let camera_info = self.camera_info(cursor_pos);
+    let transform = ctx.transform.trans(8.0, WINDOW_HEIGHT as f64 - 8.0);
+    graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
+      .expect("unable to draw text");
   }
 
   pub fn undo(&mut self) {
@@ -143,10 +141,10 @@ impl Canvas {
   pub fn display_problems(&mut self, alerts: &mut Alerts) {
     self.problems = self.bundle.generate_problems();
     if self.problems.is_empty() {
-      alerts.push_system(Ok("No map problems detected"));
+      alerts.push(Ok("No map problems detected"));
     } else {
       for problem in self.problems.iter() {
-        alerts.push_system(Ok(format!("Problem: {}", problem)));
+        alerts.push(Ok(format!("Problem: {}", problem)));
       };
     };
   }
@@ -155,75 +153,77 @@ impl Canvas {
     &mut self.brush
   }
 
-  pub fn cycle_brush(&mut self, alerts: &mut Alerts) {
+  pub fn cycle_brush(&mut self, cursor_pos: Option<Vector2<f64>>, alerts: &mut Alerts) {
     match self.view_mode {
       ViewMode::Color => {
         let kind = self.brush.kind_brush
           .map(ProvinceKind::from)
           .or_else(|| {
-            let pos = self.camera.cursor_rel_int()?;
+            let pos = cursor_pos.and_then(|cursor_pos| {
+              self.camera.relative_position_int(cursor_pos)
+            })?;
             Some(self.bundle.map.get_province_at(pos).kind)
           })
           .unwrap_or(ProvinceKind::Land);
         let color = self.bundle.random_color_pure(kind);
         self.brush.color_brush = Some(color);
-        alerts.push_system(Ok(format!("Brush set to color {}", stringify_color(color))))
+        alerts.push(Ok(format!("Brush set to color {}", stringify_color(color))))
       },
       ViewMode::Kind => {
         let kind = self.brush.kind_brush;
         let kind = self.bundle.config.cycle_kinds(kind);
         self.brush.kind_brush = Some(kind);
-        alerts.push_system(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
+        alerts.push(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
       },
       ViewMode::Terrain => {
         let terrain = self.brush.terrain_brush.as_deref();
         let terrain = self.bundle.config.cycle_terrains(terrain);
-        alerts.push_system(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
+        alerts.push(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
         self.brush.terrain_brush = Some(terrain);
       },
       ViewMode::Continent => {
         let continent = self.brush.continent_brush;
         let continent = self.bundle.config.cycle_continents(continent);
         self.brush.continent_brush = Some(continent);
-        alerts.push_system(Ok(format!("Brush set to continent {}", continent)));
+        alerts.push(Ok(format!("Brush set to continent {}", continent)));
       },
       ViewMode::Coastal => ()
     };
   }
 
-  pub fn pick_brush(&mut self, alerts: &mut Alerts) {
-    if let Some(pos) = self.camera.cursor_rel_int() {
+  pub fn pick_brush(&mut self, cursor_pos: Vector2<f64>, alerts: &mut Alerts) {
+    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       let color = self.bundle.map.get_color_at(pos);
       let province_data = self.bundle.map.get_province_at(pos);
       match self.view_mode {
         ViewMode::Color => {
           self.brush.color_brush = Some(color);
-          alerts.push_system(Ok(format!("Picked color {}", stringify_color(color))));
+          alerts.push(Ok(format!("Picked color {}", stringify_color(color))));
         },
         ViewMode::Kind => if let Some(kind) = province_data.kind.to_definition_kind() {
           self.brush.kind_brush = Some(kind);
-          alerts.push_system(Ok(format!("Picked type {}", kind.to_str().to_uppercase())));
+          alerts.push(Ok(format!("Picked type {}", kind.to_str().to_uppercase())));
         },
         ViewMode::Terrain => if province_data.terrain != "unknown" {
           let terrain = province_data.terrain.as_str();
           self.brush.terrain_brush = Some(terrain.to_owned());
-          alerts.push_system(Ok(format!("Picked terrain {}", terrain.to_uppercase())));
+          alerts.push(Ok(format!("Picked terrain {}", terrain.to_uppercase())));
         },
         ViewMode::Continent => {
           let continent = province_data.continent;
           self.brush.continent_brush = Some(continent);
-          alerts.push_system(Ok(format!("Picked continent {}", continent)));
+          alerts.push(Ok(format!("Picked continent {}", continent)));
         },
         ViewMode::Coastal => ()
       };
     };
   }
 
-  pub fn paint_brush(&mut self) {
-    if let Some(pos) = self.camera.cursor_rel_int() {
+  pub fn paint_brush(&mut self, cursor_pos: Vector2<f64>) {
+    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       if let (Some(color), ViewMode::Color) = (self.brush.color_brush, self.view_mode) {
-        let (pos, radius) = (self.camera.cursor_rel().expect("infallible"), self.brush.radius);
-        if let Some(extents) = self.bundle.paint_pixel_area(&mut self.history, pos, radius, color) {
+        let pos = self.camera.relative_position(cursor_pos);
+        if let Some(extents) = self.bundle.paint_pixel_area(&mut self.history, pos, self.brush.radius, color) {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);
@@ -263,7 +263,7 @@ impl Canvas {
   pub fn set_view_mode(&mut self, alerts: &mut Alerts, view_mode: ViewMode) {
     if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, &self.unknown_terrains) {
       let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
-      alerts.push_system(Err(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains)));
+      alerts.push(Err(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains)));
     } else if view_mode != self.view_mode {
       self.view_mode = view_mode;
       self.refresh();
@@ -319,9 +319,10 @@ impl Canvas {
     }
   }
 
-  fn camera_info(&self) -> String {
+  fn camera_info(&self, cursor_pos: Option<Vector2<f64>>) -> String {
     let zoom_info = format!("{:.2}%", self.camera.scale_factor() * 100.0);
-    let cursor_info = self.camera.cursor_rel_int()
+    let cursor_info = cursor_pos
+      .and_then(|cursor_pos| self.camera.relative_position_int(cursor_pos))
       .map_or_else(String::new, |[x, y]| format!("{}, {} px", x, y));
     let brush_info = self.brush_info();
     format!("{:<24}{:<24}{}", cursor_info, zoom_info, brush_info)
@@ -362,7 +363,6 @@ pub enum ViewMode {
 
 #[derive(Debug)]
 pub struct Camera {
-  pub cursor_pos: Option<Vector2<f64>>,
   pub texture_size: Vector2<f64>,
   pub display_matrix: Matrix2x3<f64>,
   pub panning: bool
@@ -377,15 +377,10 @@ impl Camera {
       .trans_pos(vecmath::vec2_scale(texture_size, -0.5))
       .trans_pos(WINDOW_CENTER);
     Camera {
-      cursor_pos: None,
       texture_size,
       display_matrix,
       panning: false
     }
-  }
-
-  pub fn on_mouse_position(&mut self, pos: Option<Vector2<f64>>) {
-    self.cursor_pos = pos;
   }
 
   pub fn on_mouse_relative(&mut self, rel: Vector2<f64>) {
@@ -395,9 +390,9 @@ impl Camera {
     };
   }
 
-  pub fn on_mouse_zoom(&mut self, dz: f64) {
+  pub fn on_mouse_zoom(&mut self, dz: f64, cursor_pos: Vector2<f64>) {
     let zoom = 2.0f64.powf(dz * ZOOM_SENSITIVITY);
-    let cursor_rel = self.cursor_rel().unwrap_or([0.0, 0.0]);
+    let cursor_rel = self.relative_position(cursor_pos);
     let cursor_rel_neg = vecmath::vec2_neg(cursor_rel);
     self.display_matrix = self.display_matrix
       .trans_pos(cursor_rel)
@@ -423,14 +418,6 @@ impl Camera {
     let pos = self.relative_position(pos);
     self.within_dimensions(pos)
       .then(|| [pos[0] as u32, pos[1] as u32])
-  }
-
-  fn cursor_rel(&self) -> Option<Vector2<f64>> {
-    self.cursor_pos.map(|cursor_pos| self.relative_position(cursor_pos))
-  }
-
-  fn cursor_rel_int(&self) -> Option<Vector2<u32>> {
-    self.cursor_pos.and_then(|cursor_pos| self.relative_position_int(cursor_pos))
   }
 
   fn display_matrix_inv(&self) -> Matrix2x3<f64> {

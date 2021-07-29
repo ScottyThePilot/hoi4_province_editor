@@ -13,6 +13,7 @@ better-panic = "0.2"
 ccl-fxhash = "3.0"
 chrono = "0.4"
 crossbeam = "0.8"
+dunce = "1.0"
 glutin = "0.26"
 image = { version = "0.23", default-features = false, features = ["bmp", "png"] }
 itertools = "0.10"

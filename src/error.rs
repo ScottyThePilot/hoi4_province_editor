@@ -19,7 +19,7 @@ pub enum Error {
 
 impl From<String> for Error {
   fn from(s: String) -> Error {
-    Error::Custom(s.to_owned())
+    Error::Custom(s)
   }
 }
 

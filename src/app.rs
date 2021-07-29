@@ -1,6 +1,7 @@
+pub mod alerts;
 pub mod canvas;
-mod alerts;
 pub mod format;
+pub mod interface;
 pub mod map;
 
 use glutin::window::CursorIcon;
@@ -14,8 +15,9 @@ use vecmath::Vector2;
 use crate::config::Config;
 use crate::error::Error;
 use crate::events::{EventHandler, KeyMods};
-use self::canvas::{Canvas, ViewMode};
 use self::alerts::Alerts;
+use self::canvas::{Canvas, ViewMode};
+use self::interface::{Interface, ButtonId};
 use self::map::{Location, IntoLocation};
 
 use std::path::{Path, PathBuf};
@@ -27,9 +29,19 @@ pub mod colors {
   use graphics::types::Color;
 
   pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
+  pub const WHITE_T: Color = [1.0, 1.0, 1.0, 0.25];
+  pub const PROBLEM: Color = [0.875, 0.0, 0.0, 1.0];
   pub const NEUTRAL: Color = [0.25, 0.25, 0.25, 1.0];
   pub const OVERLAY_T: Color = [0.0, 0.0, 0.0, 0.5];
+
+  pub const BUTTON: Color = [0.1875, 0.1875, 0.1875, 1.0];
+  pub const BUTTON_HOVER: Color = [0.3750, 0.3750, 0.3750, 1.0];
+
+  pub const BUTTON_TOOLBAR: Color = [0.1250, 0.1250, 0.1250, 1.0];
+  pub const BUTTON_TOOLBAR_HOVER: Color = [0.3125, 0.3125, 0.3125, 1.0];
 }
+
+pub const FONT_SIZE: u32 = 9;
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
 
@@ -39,6 +51,7 @@ pub struct App {
   pub config: Arc<Config>,
   pub alerts: Alerts,
   pub glyph_cache: FontGlyphCache,
+  pub interface: Interface,
   pub painting: bool
 }
 
@@ -48,14 +61,16 @@ impl EventHandler for App {
     let config = Config::load().expect("unable to load config");
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
     let font = Font::try_from_bytes(FONT_DATA).expect("unable to load font");
-    let mut glyph_cache = GlyphCache::from_font(font, (), texture_settings);
+    let mut glyph_cache = GlyphCache::from_font(font.clone(), (), texture_settings);
     glyph_cache.preload_printable_ascii(10).expect("unable to preload font glyphs");
+    let interface = self::interface::construct_interface(&font);
 
     App {
       canvas: None,
       config: Arc::new(config),
       alerts: Alerts::new(5.0),
       glyph_cache,
+      interface,
       painting: false
     }
   }
@@ -68,19 +83,20 @@ impl EventHandler for App {
       if let Some(path) = std::env::args().nth(1) {
         self.raw_open_map_at(path);
       } else {
-        self.alerts.push_system(Ok("Drag a file, archive, or folder onto the application to load a map"));
+        self.alerts.push(Ok("Drag a file, archive, or folder onto the application to load a map"));
       };
     };
   }
 
-  fn on_render(&mut self, ctx: Context, gl: &mut GlGraphics) {
+  fn on_render(&mut self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     graphics::clear(colors::NEUTRAL, gl);
 
     if let Some(canvas) = &self.canvas {
-      canvas.draw(ctx, &mut self.glyph_cache, !self.alerts.is_active(), gl);
+      canvas.draw(ctx, &mut self.glyph_cache, cursor_pos, gl);
     };
 
     self.alerts.draw(ctx, &mut self.glyph_cache, gl);
+    self.interface.draw(ctx, cursor_pos, &mut self.glyph_cache, gl);
   }
 
   fn on_update(&mut self, dt: f32) {
@@ -89,7 +105,7 @@ impl EventHandler for App {
     };
   }
 
-  fn on_key(&mut self, key: Key, state: bool, mods: KeyMods) {
+  fn on_key(&mut self, key: Key, state: bool, mods: KeyMods, cursor_pos: Option<Vector2<f64>>) {
     match (&mut self.canvas, state, key) {
       (_, state, Key::Tab) => self.alerts.set_state(state),
       (_, true, Key::O) if mods.ctrl => self.action_open_map(mods.alt),
@@ -98,7 +114,7 @@ impl EventHandler for App {
       (Some(_), true, Key::R) if mods.ctrl && mods.alt => self.action_reveal_map(),
       (Some(canvas), true, Key::Z) if mods.ctrl => canvas.undo(),
       (Some(canvas), true, Key::Y) if mods.ctrl => canvas.redo(),
-      (Some(canvas), true, Key::Space) => canvas.cycle_brush(&mut self.alerts),
+      (Some(canvas), true, Key::Space) => canvas.cycle_brush(cursor_pos, &mut self.alerts),
       (Some(canvas), true, Key::C) if mods.shift => canvas.calculate_coastal_provinces(),
       (Some(canvas), true, Key::R) if mods.shift => canvas.calculate_recolor_map(),
       (Some(canvas), true, Key::P) if mods.shift => canvas.display_problems(&mut self.alerts),
@@ -112,22 +128,26 @@ impl EventHandler for App {
     };
   }
 
-  fn on_mouse(&mut self, button: MouseButton, state: bool, _mods: KeyMods) {
+  fn on_mouse(&mut self, button: MouseButton, state: bool, _mods: KeyMods, pos: Vector2<f64>) {
     match (&mut self.canvas, state, button) {
-      (Some(_), true, MouseButton::Left) => self.action_start_painting(),
+      (Some(_), true, MouseButton::Left) => match self.interface.on_mouse_click(pos) {
+        Ok(id) => self.action_interface_button(id),
+        Err(true) => self.action_start_painting(pos),
+        Err(false) => ()
+      },
       (Some(_), false, MouseButton::Left) => self.action_stop_painting(),
       (Some(canvas), true, MouseButton::Right) => canvas.camera.set_panning(true),
       (Some(canvas), false, MouseButton::Right) => canvas.camera.set_panning(false),
-      (Some(canvas), true, MouseButton::Middle) => canvas.pick_brush(&mut self.alerts),
+      (Some(canvas), true, MouseButton::Middle) => canvas.pick_brush(pos, &mut self.alerts),
       _ => ()
     };
   }
 
   fn on_mouse_position(&mut self, pos: Vector2<f64>) {
+    self.interface.on_mouse_position(pos);
     if let Some(canvas) = &mut self.canvas {
-      canvas.camera.on_mouse_position(Some(pos));
       if self.painting {
-        canvas.paint_brush();
+        canvas.paint_brush(pos);
       };
     };
   }
@@ -138,12 +158,12 @@ impl EventHandler for App {
     };
   }
 
-  fn on_mouse_scroll(&mut self, [_, y]: Vector2<f64>, mods: KeyMods) {
+  fn on_mouse_scroll(&mut self, [_, y]: Vector2<f64>, mods: KeyMods, cursor_pos: Vector2<f64>) {
     if let Some(canvas) = &mut self.canvas {
       if mods.shift {
         canvas.change_brush_radius(y);
       } else {
-        canvas.camera.on_mouse_zoom(y);
+        canvas.camera.on_mouse_zoom(y, cursor_pos);
       };
     };
   }
@@ -154,9 +174,6 @@ impl EventHandler for App {
 
   fn on_unfocus(&mut self) {
     self.alerts.set_state(false);
-    if let Some(canvas) = &mut self.canvas {
-      canvas.camera.on_mouse_position(None);
-    };
   }
 
   fn on_close(mut self) {
@@ -181,10 +198,34 @@ impl App {
     }
   }
 
-  fn action_start_painting(&mut self) {
+  pub fn action_interface_button(&mut self, id: ButtonId) {
+    use self::interface::ButtonId::*;
+    match (&mut self.canvas, id) {
+      (_, ToolbarFileOpenFileArchive) => self.action_open_map(true),
+      (_, ToolbarFileOpenFolder) => self.action_open_map(false),
+      (Some(_), ToolbarFileSave) => self.action_save_map(),
+      (Some(_), ToolbarFileSaveAsArchive) => self.action_save_map_as(true),
+      (Some(_), ToolbarFileSaveAsFolder) => self.action_save_map_as(false),
+      (Some(_), ToolbarFileReveal) => self.action_reveal_map(),
+      (Some(canvas), ToolbarEditUndo) => canvas.undo(),
+      (Some(canvas), ToolbarEditRedo) => canvas.redo(),
+      (Some(canvas), ToolbarEditCoastal) => canvas.calculate_coastal_provinces(),
+      (Some(canvas), ToolbarEditRecolor) => canvas.calculate_recolor_map(),
+      (Some(canvas), ToolbarEditProblems) => canvas.display_problems(&mut self.alerts),
+      (Some(canvas), ToolbarViewMode1) => canvas.set_view_mode(&mut self.alerts, ViewMode::Color),
+      (Some(canvas), ToolbarViewMode2) => canvas.set_view_mode(&mut self.alerts, ViewMode::Kind),
+      (Some(canvas), ToolbarViewMode3) => canvas.set_view_mode(&mut self.alerts, ViewMode::Terrain),
+      (Some(canvas), ToolbarViewMode4) => canvas.set_view_mode(&mut self.alerts, ViewMode::Continent),
+      (Some(canvas), ToolbarViewMode5) => canvas.set_view_mode(&mut self.alerts, ViewMode::Coastal),
+      (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
+      _ => ()
+    };
+  }
+
+  fn action_start_painting(&mut self, pos: Vector2<f64>) {
     self.painting = true;
     if let Some(canvas) = &mut self.canvas {
-      canvas.paint_brush();
+      canvas.paint_brush(pos);
     };
   }
 
@@ -217,16 +258,17 @@ impl App {
   }
 
   fn action_save_map_as(&mut self, archive: bool) {
-    if let Some(_) = &self.canvas {
+    if self.canvas.is_some() {
       if let Some(location) = file_dialog_save(archive) {
-        self.raw_save_map_at(location.clone());
+        self.raw_save_map_at(location);
       };
     };
   }
 
   fn action_reveal_map(&mut self) {
     if let Some(canvas) = &self.canvas {
-      let result = reveal_in_file_browser(canvas.location().as_path());
+      let path = canvas.location().as_path();
+      let result = reveal_in_file_browser(path);
       self.handle_result_none(result);
     };
   }
@@ -246,7 +288,8 @@ impl App {
 
   fn raw_save_map_at(&mut self, location: impl IntoLocation) {
     fn inner(app: &mut App, location: impl IntoLocation) -> Result<String, Error> {
-      let canvas = app.canvas.as_mut().ok_or(Error::from("no canvas loaded"))?;
+      let canvas = app.canvas.as_mut()
+        .ok_or_else(|| Error::from("no canvas loaded"))?;
       let location = location.into_location()?;
       let success_message = format!("Saved map to {}", location);
       canvas.save(&location)?;
@@ -261,12 +304,12 @@ impl App {
 
   fn handle_result_none(&mut self, result: Result<(), Error>) {
     if let Err(err) = result {
-      self.alerts.push_system(Err(format!("Error: {}", err)));
+      self.alerts.push(Err(format!("Error: {}", err)));
     };
   }
 
   fn handle_result<T: Display>(&mut self, result: Result<T, Error>) {
-    self.alerts.push_system(match result {
+    self.alerts.push(match result {
       Ok(text) => Ok(format!("{}", text)),
       Err(err) => Err(format!("Error: {}", err))
     });
@@ -338,19 +381,17 @@ fn msg_dialog_unsaved_changes() -> bool {
 pub fn reveal_in_file_browser(path: impl AsRef<Path>) -> Result<(), Error> {
   use std::process::Command;
 
-  let command = match () {
-    #[cfg(target_os = "windows")] _ => "explorer",
-    #[cfg(target_os = "macos")] _ => "open",
-    #[cfg(target_os = "linux")] _ => "xdg-open",
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    _ => return Err("unable to reveal in file browser".into())
-  };
-
-  let success = Command::new(command).arg(path.as_ref())
-    .output()?.status.success();
-
-  match success {
-    true => Ok(()),
-    false => Err("unable to reveal in file browser".into())
+  let path = dunce::canonicalize(path)?;
+  if cfg!(target_os = "windows") {
+    Command::new("explorer").arg(&path).status()?;
+    Ok(())
+  } else if cfg!(target_os = "macos") {
+    Command::new("open").arg(&path).status()?;
+    Ok(())
+  } else if cfg!(target_os = "linux") {
+    Command::new("xdg-open").arg(&path).status()?;
+    Ok(())
+  } else {
+    Err("unable to reveal in file browser".into())
   }
 }

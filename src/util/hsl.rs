@@ -1,3 +1,4 @@
+#![allow(clippy::many_single_char_names)]
 // Code borrowed from https://github.com/DerivedMate/hsl-ish
 
 pub fn hsl_to_rgb(hsl: [f64; 3]) -> [u8; 3] {

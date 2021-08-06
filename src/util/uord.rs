@@ -30,7 +30,7 @@ impl<T> UOrd<T> {
   pub fn as_tuple(&self) -> (&T, &T)
   where T: Ord {
     let UOrd { a, b } = self;
-    match T::cmp(&a, &b) {
+    match T::cmp(a, b) {
       Ordering::Less | Ordering::Equal => (a, b),
       Ordering::Greater => (b, a)
     }

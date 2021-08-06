@@ -115,7 +115,7 @@ impl FromStr for AdjacencyKind {
   type Err = ParseError;
 
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    match s {
+    match s.to_ascii_lowercase().as_str() {
       "" => Ok(AdjacencyKind::Land),
       "river" => Ok(AdjacencyKind::River),
       "large_river" => Ok(AdjacencyKind::LargeRiver),
@@ -134,9 +134,9 @@ impl TryFrom<String> for AdjacencyKind {
   }
 }
 
-impl Into<&'static str> for AdjacencyKind {
-  fn into(self) -> &'static str {
-    self.to_str()
+impl From<AdjacencyKind> for &'static str {
+  fn from(kind: AdjacencyKind) -> &'static str {
+    kind.to_str()
   }
 }
 

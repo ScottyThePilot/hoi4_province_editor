@@ -39,7 +39,7 @@ impl ParseCsv<8> for Definition {
     Ok(Definition {
       id: id.parse()?,
       rgb: [r.parse()?, g.parse()?, b.parse()?],
-      kind: kind.to_lowercase().parse()?,
+      kind: kind.parse()?,
       coastal: parse_maybe_bool(&coastal)?,
       terrain: terrain.to_lowercase(),
       continent: continent.parse()?
@@ -102,7 +102,7 @@ impl FromStr for DefinitionKind {
   type Err = ParseError;
 
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    match s {
+    match s.to_ascii_lowercase().as_str() {
       "land" => Ok(DefinitionKind::Land),
       "sea" => Ok(DefinitionKind::Sea),
       "lake" => Ok(DefinitionKind::Lake),
@@ -119,9 +119,9 @@ impl TryFrom<String> for DefinitionKind {
   }
 }
 
-impl Into<&'static str> for DefinitionKind {
-  fn into(self) -> &'static str {
-    self.to_str()
+impl From<DefinitionKind> for &'static str {
+  fn from(kind: DefinitionKind) -> &'static str {
+    kind.to_str()
   }
 }
 

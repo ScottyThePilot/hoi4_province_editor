@@ -18,23 +18,26 @@ use crate::app::format::*;
 use crate::error::Error;
 
 pub use self::bridge::{Location, IntoLocation};
+pub use self::bridge::{write_rgb_bmp_image, read_rgb_bmp_image};
 pub use self::history::History;
 pub use self::problems::Problem;
 
 use std::convert::TryFrom;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+const CHUNK_SIZE: usize = 1048576;
 
 pub type Color = [u8; 3];
 
 #[derive(Debug)]
 pub struct Bundle {
   pub map: Map,
-  pub config: Arc<Config>
+  pub config: Config
 }
 
 impl Bundle {
-  pub fn load(location: &Location, config: Arc<Config>) -> Result<Self, Error> {
+  pub fn load(location: &Location, config: Config) -> Result<Self, Error> {
     self::bridge::load_bundle(location, config)
   }
 
@@ -78,30 +81,44 @@ impl Bundle {
     self::history::paint_pixel(self, history, pos, color)
   }
 
+  pub fn image_buffer_land(&self) -> Option<RgbImage> {
+    self.map.gen_image_buffer(|which| {
+      let kind = self.map.get_province(which).kind;
+      self.config.land_color(kind)
+    })
+  }
+
+  pub fn image_buffer_terrain(&self) -> Option<RgbImage> {
+    self.map.gen_image_buffer(|which| {
+      let terrain = &self.map.get_province(which).terrain;
+      self.config.terrain_color(terrain)
+    })
+  }
+
   pub fn texture_buffer_color(&self) -> RgbaImage {
-    self.map.texture_buffer(|which| which)
+    self.map.gen_texture_buffer(|which| which)
   }
 
   pub fn texture_buffer_selective_color(&self, extents: Extents) -> RgbaImage {
-    self.map.texture_buffer_selective(extents, |which| which)
+    self.map.gen_texture_buffer_selective(extents, |which| which)
   }
 
   pub fn texture_buffer_kind(&self) -> RgbaImage {
-    self.map.texture_buffer(|which| {
+    self.map.gen_texture_buffer(|which| {
       let kind = self.map.get_province(which).kind;
       self.config.kind_color(kind)
     })
   }
 
   pub fn texture_buffer_selective_kind(&self, extents: Extents) -> RgbaImage {
-    self.map.texture_buffer_selective(extents, |which| {
+    self.map.gen_texture_buffer_selective(extents, |which| {
       let kind = self.map.get_province(which).kind;
       self.config.kind_color(kind)
     })
   }
 
   pub fn texture_buffer_terrain(&self) -> RgbaImage {
-    self.map.texture_buffer(|which| {
+    self.map.gen_texture_buffer(|which| {
       let terrain = &self.map.get_province(which).terrain;
       match self.config.terrain_color(terrain) {
         None => panic!("unknown terrain type, color not found in config: {}", terrain),
@@ -111,7 +128,7 @@ impl Bundle {
   }
 
   pub fn texture_buffer_selective_terrain(&self, extents: Extents) -> RgbaImage {
-    self.map.texture_buffer_selective(extents, |which| {
+    self.map.gen_texture_buffer_selective(extents, |which| {
       let terrain = &self.map.get_province(which).terrain;
       match self.config.terrain_color(terrain) {
         None => panic!("unknown terrain type, color not found in config: {}", terrain),
@@ -126,7 +143,7 @@ impl Bundle {
   // Besides, a map with 4096 continents sounds a bit absurd.
 
   pub fn texture_buffer_continent(&self) -> RgbaImage {
-    self.map.texture_buffer(|which| {
+    self.map.gen_texture_buffer(|which| {
       let continent = self.map.get_province(which).continent;
       crate::util::random::sequence_color(continent as usize)
         .expect("only a maximum of 4096 provinces are supported")
@@ -134,7 +151,7 @@ impl Bundle {
   }
 
   pub fn texture_buffer_selective_continent(&self, extents: Extents) -> RgbaImage {
-    self.map.texture_buffer_selective(extents, |which| {
+    self.map.gen_texture_buffer_selective(extents, |which| {
       let continent = self.map.get_province(which).continent;
       crate::util::random::sequence_color(continent as usize)
         .expect("only a maximum of 4096 provinces are supported")
@@ -142,14 +159,14 @@ impl Bundle {
   }
 
   pub fn texture_buffer_coastal(&self) -> RgbaImage {
-    self.map.texture_buffer(|which| {
+    self.map.gen_texture_buffer(|which| {
       let ProvinceData { coastal, kind, .. } = *self.map.get_province(which);
       self.config.coastal_color(coastal, kind)
     })
   }
 
   pub fn texture_buffer_selective_coastal(&self, extents: Extents) -> RgbaImage {
-    self.map.texture_buffer_selective(extents, |which| {
+    self.map.gen_texture_buffer_selective(extents, |which| {
       let ProvinceData { coastal, kind, .. } = *self.map.get_province(which);
       self.config.coastal_color(coastal, kind)
     })
@@ -208,9 +225,8 @@ impl Map {
   }
 
   /// Generates a texture buffer, a buffer to be consumed by the canvas to display the map
-  pub fn texture_buffer<F>(&self, f: F) -> RgbaImage
+  pub fn gen_texture_buffer<F>(&self, f: F) -> RgbaImage
   where F: Fn(Color) -> Color + Send + Sync {
-    const CHUNK_SIZE: usize = 1048576;
     const CHUNK_SIZE_BYTES: usize = CHUNK_SIZE * 4;
     let (width, height) = self.color_buffer.dimensions();
     let mut buffer = RgbaImage::new(width, height);
@@ -233,7 +249,7 @@ impl Map {
   }
 
   /// Generates a fragment of a texture buffer, based on a bounding box
-  pub fn texture_buffer_selective<F>(&self, extents: Extents, f: F) -> RgbaImage
+  pub fn gen_texture_buffer_selective<F>(&self, extents: Extents, f: F) -> RgbaImage
   where F: Fn(Color) -> Color {
     let (offset, size) = extents.to_offset_size();
     let mut buffer = RgbaImage::new(size[0], size[1]);
@@ -244,6 +260,40 @@ impl Map {
     };
 
     buffer
+  }
+
+  /// Generates an image buffer, a 24 bit RGB image to be exported and used outside of the program
+  pub fn gen_image_buffer<F>(&self, f: F) -> Option<RgbImage>
+  where F: Fn(Color) -> Option<Color> + Send + Sync {
+    const CHUNK_SIZE_BYTES: usize = CHUNK_SIZE * 3;
+    let (width, height) = self.color_buffer.dimensions();
+    let mut buffer = RgbImage::new(width, height);
+    let cancel = AtomicBool::new(false);
+    scope(|s| {
+      for (i, scope_chunk) in buffer.chunks_mut(CHUNK_SIZE_BYTES).enumerate() {
+        let so = i * CHUNK_SIZE;
+        let (f, cancel) = (&f, &cancel);
+        s.spawn(move |_| {
+          if cancel.load(Ordering::Relaxed) { return };
+          for (lo, pixel) in scope_chunk.chunks_mut(3).enumerate() {
+            let pixel = <Rgb<u8> as Pixel>::from_slice_mut(pixel);
+            let pos = pos_from_offset(so, lo, width as usize);
+            if let Some(color) = f(self.get_color_at(pos)) {
+              *pixel = Rgb(color);
+            } else {
+              cancel.store(true, Ordering::Relaxed);
+              break;
+            };
+          };
+        });
+      };
+    }).unwrap();
+
+    if cancel.into_inner() {
+      None
+    } else {
+      Some(buffer)
+    }
   }
 
   /// Sets the color of a single pixel in `color_buffer` without any checks
@@ -336,6 +386,12 @@ impl Map {
     check(pos, [pos[0] - 1, pos[1]], [pos[0], pos[1] - 1]);
 
     neighbors
+  }
+
+  /// If the map has any provinces where the type is `Unknown`
+  pub fn has_unknown_provinces(&self) -> bool {
+    self.province_data_map.values()
+      .any(|province_data| province_data.kind == ProvinceKind::Unknown)
   }
 
   /// Replaces all of one color in `color_buffer` without any checks
@@ -598,9 +654,9 @@ impl TryFrom<String> for ProvinceKind {
   }
 }
 
-impl Into<&'static str> for ProvinceKind {
-  fn into(self) -> &'static str {
-    self.to_str()
+impl From<ProvinceKind> for &'static str {
+  fn from(kind: ProvinceKind) -> &'static str {
+    kind.to_str()
   }
 }
 

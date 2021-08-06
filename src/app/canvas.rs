@@ -2,25 +2,27 @@ use fxhash::FxHashSet;
 use graphics::Transformed;
 use graphics::context::Context;
 use graphics::ellipse::Ellipse;
+use image::RgbImage;
 use itertools::Itertools;
 use opengl_graphics::{Filter, GlGraphics, Texture, TextureSettings};
 use vecmath::{Matrix2x3, Vector2};
 
 use super::{colors, FontGlyphCache, FONT_SIZE};
+use super::alerts::Alerts;
 use super::map::*;
 use super::format::DefinitionKind;
 use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use crate::config::Config;
-use super::alerts::Alerts;
 use crate::util::stringify_color;
 use crate::error::Error;
 
-use std::sync::Arc;
+use std::path::Path;
+use std::fs::File;
+use std::fmt;
 
 const ZOOM_SENSITIVITY: f64 = 0.125;
 const WINDOW_CENTER: Vector2<f64> = [WINDOW_WIDTH as f64 / 2.0, WINDOW_HEIGHT as f64 / 2.0];
 
-#[allow(missing_debug_implementations)]
 pub struct Canvas {
   bundle: Bundle,
   history: History,
@@ -35,7 +37,8 @@ pub struct Canvas {
 }
 
 impl Canvas {
-  pub fn load(location: Location, config: Arc<Config>) -> Result<Canvas, Error> {
+  pub fn load(location: Location) -> Result<Canvas, Error> {
+    let config = Config::load()?;
     let history = History::new(config.max_undo_states);
     let bundle = Bundle::load(&location, config)?;
     let texture_settings = TextureSettings::new().mag(Filter::Nearest);
@@ -75,8 +78,8 @@ impl Canvas {
     self.location = location;
   }
 
-  pub fn config(&self) -> Arc<Config> {
-    Arc::clone(&self.bundle.config)
+  pub fn config(&self) -> &Config {
+    &self.bundle.config
   }
 
   pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
@@ -99,6 +102,41 @@ impl Canvas {
     let transform = ctx.transform.trans(8.0, WINDOW_HEIGHT as f64 - 8.0);
     graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
       .expect("unable to draw text");
+  }
+
+  pub fn reload_config(&mut self, alerts: &mut Alerts) {
+    match Config::load() {
+      Ok(config) => {
+        self.bundle.config = config;
+        alerts.push(Ok("Reloaded config"));
+      },
+      Err(err) => alerts.push(Err(format!("Error: {}", err)))
+    };
+  }
+
+  pub fn export_land_map<P: AsRef<Path>>(&self, path: P, alerts: &mut Alerts) {
+    if let Some(image) = self.bundle.image_buffer_land() {
+      let path = path.as_ref();
+      match export_image_buffer(path, image) {
+        Ok(()) => alerts.push(Ok(format!("Exported land map to {}", path.display()))),
+        Err(err) => alerts.push(Err(format!("Error: {}", err)))
+      };
+    } else {
+      alerts.push(Err("Error: province with unknown type present"));
+    };
+  }
+
+  pub fn export_terrain_map<P: AsRef<Path>>(&self, path: P, alerts: &mut Alerts) {
+    if let Some(unknown_terrains) = self.unknown_terrains() {
+      alerts.push(Err(unknown_terrains));
+    } else {
+      let path = path.as_ref();
+      let image = self.bundle.image_buffer_terrain().unwrap();
+      match export_image_buffer(path, image) {
+        Ok(()) => alerts.push(Ok(format!("Exported terrain map to {}", path.display()))),
+        Err(err) => alerts.push(Err(format!("Error: {}", err)))
+      };
+    };
   }
 
   pub fn undo(&mut self) {
@@ -261,13 +299,21 @@ impl Canvas {
   }
 
   pub fn set_view_mode(&mut self, alerts: &mut Alerts, view_mode: ViewMode) {
-    if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, &self.unknown_terrains) {
-      let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
-      alerts.push(Err(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains)));
+    if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, self.unknown_terrains()) {
+      alerts.push(Err(unknown_terrains));
     } else if view_mode != self.view_mode {
       self.view_mode = view_mode;
       self.refresh();
     };
+  }
+
+  fn unknown_terrains(&self) -> Option<String> {
+    if let Some(unknown_terrains) = &self.unknown_terrains {
+      let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
+      Some(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains))
+    } else {
+      None
+    }
   }
 
   fn refresh(&mut self) {
@@ -329,6 +375,23 @@ impl Canvas {
   }
 }
 
+impl fmt::Debug for Canvas {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    f.debug_struct("Canvas")
+      .field("bundle", &self.bundle)
+      .field("history", &self.history)
+      .field("texture", &format_args!("..."))
+      .field("view_mode", &self.view_mode)
+      .field("brush", &self.brush)
+      .field("problems", &self.problems)
+      .field("unknown_terrains", &self.unknown_terrains)
+      .field("location", &self.location)
+      .field("modified", &self.modified)
+      .field("camera", &self.camera)
+      .finish_non_exhaustive()
+  }
+}
+
 
 
 #[derive(Debug, Clone)]
@@ -337,6 +400,7 @@ pub struct BrushSettings {
   pub kind_brush: Option<DefinitionKind>,
   pub terrain_brush: Option<String>,
   pub continent_brush: Option<u16>,
+  pub mode: BrushMode,
   pub radius: f64
 }
 
@@ -347,8 +411,24 @@ impl Default for BrushSettings {
       kind_brush: None,
       terrain_brush: None,
       continent_brush: None,
+      mode: BrushMode::default(),
       radius: 8.0
     }
+  }
+}
+
+#[derive(Debug, Clone)]
+pub enum BrushMode {
+  Paint,
+  FloodFill,
+  PolygonalLasso {
+    points: Vec<Vector2<f64>>
+  }
+}
+
+impl Default for BrushMode {
+  fn default() -> BrushMode {
+    BrushMode::Paint
   }
 }
 
@@ -432,4 +512,8 @@ impl Camera {
     (0.0..self.texture_size[0]).contains(&pos[0]) &&
     (0.0..self.texture_size[1]).contains(&pos[1])
   }
+}
+
+fn export_image_buffer<P: AsRef<Path>>(path: P, image: RgbImage) -> Result<(), Error> {
+  super::map::write_rgb_bmp_image(File::create(path)?, &image)
 }

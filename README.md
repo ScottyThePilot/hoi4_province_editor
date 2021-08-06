@@ -53,16 +53,16 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - Support for custom terrain types via `hoi4pe_config.toml`
 - Seeing map errors/warnings graphically (via `Shift-P`)
 - Auto-generating which provinces are coastal (via `Shift-C`)
+- Exporting terrain or land type view modes for MapGen/ProvGen
 - Preserving province IDs (in order to not break maps)
 
 ## Planned Features
 - Support for creating/editing adjacencies
 - Support for states/strategic regions
-- Exporting terrain or land type view modes for MapGen/ProvGen
 - Province selection and multiple province editing
-- Support for platforms beyond Windows
+- Better support for platforms beyond Windows
 
-## Building
+## Manually Building
 1. [Install Rust](https://www.rust-lang.org/tools/install)
 2. Clone this repository to a folder and navigate there in your terminal
 3. Run `cargo build --release` in that folder, wait for it to complete

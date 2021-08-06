@@ -12,7 +12,6 @@ use piston::input::{Key, MouseButton};
 use rusttype::Font;
 use vecmath::Vector2;
 
-use crate::config::Config;
 use crate::error::Error;
 use crate::events::{EventHandler, KeyMods};
 use self::alerts::Alerts;
@@ -21,8 +20,7 @@ use self::interface::{Interface, ButtonId};
 use self::map::{Location, IntoLocation};
 
 use std::path::{Path, PathBuf};
-use std::fmt::Display;
-use std::sync::Arc;
+use std::fmt;
 use std::env;
 
 pub mod colors {
@@ -45,10 +43,8 @@ pub const FONT_SIZE: u32 = 9;
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
 
-#[allow(missing_debug_implementations)]
 pub struct App {
   pub canvas: Option<Canvas>,
-  pub config: Arc<Config>,
   pub alerts: Alerts,
   pub glyph_cache: FontGlyphCache,
   pub interface: Interface,
@@ -58,7 +54,6 @@ pub struct App {
 impl EventHandler for App {
   fn new(_gl: &mut GlGraphics) -> Self {
     const FONT_DATA: &[u8] = include_bytes!("../assets/Consolas.ttf");
-    let config = Config::load().expect("unable to load config");
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
     let font = Font::try_from_bytes(FONT_DATA).expect("unable to load font");
     let mut glyph_cache = GlyphCache::from_font(font.clone(), (), texture_settings);
@@ -67,7 +62,6 @@ impl EventHandler for App {
 
     App {
       canvas: None,
-      config: Arc::new(config),
       alerts: Alerts::new(5.0),
       glyph_cache,
       interface,
@@ -76,15 +70,14 @@ impl EventHandler for App {
   }
 
   fn on_init(&mut self) {
-    if cfg!(debug_assertions) {
-      // In debug mode, load the custom test map
-      self.raw_open_map_at("./test_map.zip");
+    #[cfg(debug_assertions)]
+    self.raw_open_map_at("./test_map.zip");
+
+    #[cfg(not(debug_assertions))]
+    if let Some(path) = std::env::args().nth(1) {
+      self.raw_open_map_at(path);
     } else {
-      if let Some(path) = std::env::args().nth(1) {
-        self.raw_open_map_at(path);
-      } else {
-        self.alerts.push(Ok("Drag a file, archive, or folder onto the application to load a map"));
-      };
+      self.alerts.push(Ok("Drag a file, archive, or folder onto the application to load a map"));
     };
   }
 
@@ -207,6 +200,8 @@ impl App {
       (Some(_), ToolbarFileSaveAsArchive) => self.action_save_map_as(true),
       (Some(_), ToolbarFileSaveAsFolder) => self.action_save_map_as(false),
       (Some(_), ToolbarFileReveal) => self.action_reveal_map(),
+      (Some(_), ToolbarFileExportLandMap) => self.action_export_land_map(),
+      (Some(_), ToolbarFileExportTerrainMap) => self.action_export_terrain_map(),
       (Some(canvas), ToolbarEditUndo) => canvas.undo(),
       (Some(canvas), ToolbarEditRedo) => canvas.redo(),
       (Some(canvas), ToolbarEditCoastal) => canvas.calculate_coastal_provinces(),
@@ -273,22 +268,37 @@ impl App {
     };
   }
 
+  fn action_export_land_map(&mut self) {
+    if let Some(canvas) = &self.canvas {
+      if let Some(path) = file_dialog_save_bmp("land") {
+        canvas.export_land_map(path, &mut self.alerts);
+      };
+    };
+  }
+
+  fn action_export_terrain_map(&mut self) {
+    if let Some(canvas) = &self.canvas {
+      if let Some(path) = file_dialog_save_bmp("terrain") {
+        canvas.export_terrain_map(path, &mut self.alerts);
+      };
+    };
+  }
+
   fn raw_open_map_at(&mut self, location: impl IntoLocation) {
-    fn inner(app: &mut App, location: impl IntoLocation) -> Result<String, Error> {
+    let result = crate::try_block!{
       let location = location.into_location()?;
       let success_message = format!("Loaded map from {}", location);
-      let canvas = Canvas::load(location, Arc::clone(&app.config))?;
-      app.canvas = Some(canvas);
+      let canvas = Canvas::load(location)?;
+      self.canvas = Some(canvas);
       Ok(success_message)
-    }
+    };
 
-    let result = inner(self, location);
     self.handle_result(result);
   }
 
   fn raw_save_map_at(&mut self, location: impl IntoLocation) {
-    fn inner(app: &mut App, location: impl IntoLocation) -> Result<String, Error> {
-      let canvas = app.canvas.as_mut()
+    let result = crate::try_block!{
+      let canvas = self.canvas.as_mut()
         .ok_or_else(|| Error::from("no canvas loaded"))?;
       let location = location.into_location()?;
       let success_message = format!("Saved map to {}", location);
@@ -296,9 +306,8 @@ impl App {
       canvas.set_location(location);
       canvas.modified = false;
       Ok(success_message)
-    }
+    };
 
-    let result = inner(self, location);
     self.handle_result(result);
   }
 
@@ -308,12 +317,36 @@ impl App {
     };
   }
 
-  fn handle_result<T: Display>(&mut self, result: Result<T, Error>) {
+  fn handle_result<T: fmt::Display>(&mut self, result: Result<T, Error>) {
     self.alerts.push(match result {
-      Ok(text) => Ok(format!("{}", text)),
+      Ok(text) => Ok(text.to_string()),
       Err(err) => Err(format!("Error: {}", err))
     });
   }
+}
+
+impl fmt::Debug for App {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    f.debug_struct("App")
+      .field("canvas", &self.canvas)
+      .field("alerts", &self.alerts)
+      .field("glyph_cache", &format_args!("..."))
+      .field("interface", &self.interface)
+      .field("painting", &self.painting)
+      .finish()
+  }
+}
+
+fn file_dialog_save_bmp(filename: &str) -> Option<PathBuf> {
+  use native_dialog::FileDialog;
+  let root = env::current_dir()
+    .unwrap_or_else(|_| PathBuf::from("./"));
+  FileDialog::new()
+    .set_location(&root)
+    .set_filename(&format!("{}.bmp", filename))
+    .add_filter("24-bit Bitmap", &["bmp"])
+    .show_save_single_file()
+    .expect("error displaying file dialog")
 }
 
 fn file_dialog_save(archive: bool) -> Option<Location> {

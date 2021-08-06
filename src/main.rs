@@ -4,6 +4,7 @@ pub mod app;
 pub mod config;
 pub mod error;
 pub mod events;
+#[macro_use]
 pub mod util;
 
 use glutin_window::GlutinWindow;
@@ -25,8 +26,8 @@ pub const APPNAME: &str = concat!("HOI4 Province Map Editor v", env!("CARGO_PKG_
 fn main() {
   better_panic::install();
 
-  let root = root_dir().unwrap();
-  env::set_current_dir(root).unwrap();
+  let root = root_dir().expect("unable to find root dir");
+  env::set_current_dir(root).expect("unable to set root dir");
 
   let opengl = OpenGL::V3_2;
   let screen = [WINDOW_WIDTH, WINDOW_HEIGHT];
@@ -48,5 +49,5 @@ fn root_dir() -> io::Result<PathBuf> {
     return Ok(current_exe);
   };
 
-  Err(io::Error::new(io::ErrorKind::Other, "Failed to find an application root"))
+  Err(io::Error::new(io::ErrorKind::Other, "failed to find an application root"))
 }

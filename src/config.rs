@@ -84,6 +84,15 @@ impl Config {
     }
   }
 
+  pub fn land_color(&self, kind: impl Into<ProvinceKind>) -> Option<Color> {
+    match kind.into() {
+      ProvinceKind::Land => Some([150, 68, 192]),
+      ProvinceKind::Sea => Some([5, 20, 18]),
+      ProvinceKind::Lake => Some([80, 240, 120]),
+      ProvinceKind::Unknown => None
+    }
+  }
+
   pub fn coastal_color(&self, coastal: Option<bool>, kind: impl Into<ProvinceKind>) -> Color {
     match (coastal, kind.into()) {
       (Some(false), ProvinceKind::Land) => [0x00, 0x33, 0x11],

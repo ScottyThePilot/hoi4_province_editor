@@ -83,3 +83,13 @@ pub fn fx_hash_set_with_capacity<T>(capacity: usize) -> FxHashSet<T> {
 pub fn now() -> impl std::fmt::Display + 'static {
   Local::now().format("%Y-%m-%d %H:%M:%S")
 }
+
+/// Hacky trait equivalent of the nightly `try_block` feature.
+#[macro_export]
+macro_rules! try_block {
+  ($($t:tt)*) => {
+    (|| {
+      $($t)*
+    })()
+  };
+}

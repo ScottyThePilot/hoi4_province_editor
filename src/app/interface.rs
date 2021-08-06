@@ -1,3 +1,4 @@
+//! Code regarding buttons and interactive elements on the screen
 use graphics::Transformed;
 use graphics::context::Context;
 use graphics::types::Color;
@@ -29,6 +30,10 @@ pub struct Interface {
 }
 
 impl Interface {
+  /// Called when the mouse is clicked to act on the interface and change its state.
+  /// If a button was clicked, `Ok` is returned with the appropriate button ID.
+  /// If a button was not clicked, a boolean is returned indicating whether or not
+  /// the input just processed should be deferred to something below the interface.
   pub fn on_mouse_click(&mut self, pos: Vector2<f64>) -> Result<ButtonId, bool> {
     for button in &self.buttons {
       if button.text_box.test(pos) {
@@ -285,6 +290,8 @@ pub enum ButtonId {
   ToolbarFileSaveAsArchive,
   ToolbarFileSaveAsFolder,
   ToolbarFileReveal,
+  ToolbarFileExportLandMap,
+  ToolbarFileExportTerrainMap,
   ToolbarEditUndo,
   ToolbarEditRedo,
   ToolbarEditCoastal,
@@ -310,6 +317,8 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Save As Archive...", "Ctrl+Shift+Alt+S", ButtonId::ToolbarFileSaveAsArchive),
     ("Save As...", "Ctrl+Shift+S", ButtonId::ToolbarFileSaveAsFolder),
     ("Reveal in File Browser", "Ctrl+Alt+R", ButtonId::ToolbarFileReveal),
+    ("Export Land Map...", "", ButtonId::ToolbarFileExportLandMap),
+    ("Export Terrain Map...", "", ButtonId::ToolbarFileExportTerrainMap)
   ]),
   ("Edit", &[
     ("Undo", "Ctrl+Z", ButtonId::ToolbarEditUndo),

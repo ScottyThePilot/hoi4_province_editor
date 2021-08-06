@@ -1,7 +1,8 @@
 use thiserror::Error;
 
-use crate::util::csv::CsvError;
 use crate::app::format::ParseError;
+use crate::config::LoadConfigError;
+use crate::util::csv::CsvError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -13,6 +14,8 @@ pub enum Error {
   Image(#[from] image::ImageError),
   #[error(transparent)]
   Csv(#[from] CsvError<ParseError>),
+  #[error(transparent)]
+  ConfigError(#[from] LoadConfigError),
   #[error("{0}")]
   Custom(String)
 }

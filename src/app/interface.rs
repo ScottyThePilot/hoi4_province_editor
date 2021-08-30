@@ -302,6 +302,7 @@ pub enum ButtonId {
   ToolbarViewMode3,
   ToolbarViewMode4,
   ToolbarViewMode5,
+  ToolbarViewMode6,
   ToolbarViewResetZoom
 }
 
@@ -333,6 +334,7 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Land Type Map View Mode", "3", ButtonId::ToolbarViewMode3),
     ("Continents Map View Mode", "4", ButtonId::ToolbarViewMode4),
     ("Coastal Provinces Map View Mode", "5", ButtonId::ToolbarViewMode5),
+    ("Adjacencies Map View Mode", "6", ButtonId::ToolbarViewMode6),
     ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom),
   ])
 ];

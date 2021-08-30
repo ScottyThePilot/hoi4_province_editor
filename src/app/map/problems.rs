@@ -54,8 +54,8 @@ impl fmt::Display for Problem {
       Problem::TooLargeBox(extents) => {
         write!(f, "Province has too large box from {:?} to {:?}", extents.upper, extents.lower)
       },
-      Problem::TooFewPixels(count, pos) => {
-        write!(f, "Province has only {} pixels around {:?}", count, pos)
+      Problem::TooFewPixels(count, [x, y]) => {
+        write!(f, "Province has only {} pixels around [{:.0}, {:.0}]", count, x, y)
       },
       Problem::InvalidWidth => {
         write!(f, "Map texture width is not a multiple of 64")

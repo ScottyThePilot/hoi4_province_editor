@@ -117,13 +117,14 @@ impl EventHandler for App {
       (Some(canvas), true, Key::D3) => canvas.set_view_mode(&mut self.alerts, ViewMode::Terrain),
       (Some(canvas), true, Key::D4) => canvas.set_view_mode(&mut self.alerts, ViewMode::Continent),
       (Some(canvas), true, Key::D5) => canvas.set_view_mode(&mut self.alerts, ViewMode::Coastal),
+      (Some(canvas), true, Key::D6) => canvas.set_view_mode(&mut self.alerts, ViewMode::Adjacencies),
       _ => ()
     };
   }
 
   fn on_mouse(&mut self, button: MouseButton, state: bool, _mods: KeyMods, pos: Vector2<f64>) {
     match (&mut self.canvas, state, button) {
-      (Some(_), true, MouseButton::Left) => match self.interface.on_mouse_click(pos) {
+      (_, true, MouseButton::Left) => match self.interface.on_mouse_click(pos) {
         Ok(id) => self.action_interface_button(id),
         Err(true) => self.action_start_painting(pos),
         Err(false) => ()
@@ -212,8 +213,9 @@ impl App {
       (Some(canvas), ToolbarViewMode3) => canvas.set_view_mode(&mut self.alerts, ViewMode::Terrain),
       (Some(canvas), ToolbarViewMode4) => canvas.set_view_mode(&mut self.alerts, ViewMode::Continent),
       (Some(canvas), ToolbarViewMode5) => canvas.set_view_mode(&mut self.alerts, ViewMode::Coastal),
+      (Some(canvas), ToolbarViewMode6) => canvas.set_view_mode(&mut self.alerts, ViewMode::Adjacencies),
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
-      _ => ()
+      (None, _) => self.alerts.push(Err("You must have a map loaded to use this")),
     };
   }
 

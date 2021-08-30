@@ -24,6 +24,7 @@ pub use self::problems::Problem;
 
 use std::convert::TryFrom;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const CHUNK_SIZE: usize = 1048576;
@@ -47,38 +48,6 @@ impl Bundle {
 
   pub fn generate_problems(&self) -> Vec<Problem> {
     self::problems::analyze(self)
-  }
-
-  pub fn calculate_coastal_provinces(&mut self, history: &mut History) -> bool {
-    self::history::calculate_coastal_provinces(self, history)
-  }
-
-  pub fn calculate_recolor_map(&mut self, history: &mut History) -> bool {
-    self::history::calculate_recolor_map(self, history)
-  }
-
-  pub fn paint_province_kind(&mut self, history: &mut History, pos: Vector2<u32>, kind: impl Into<ProvinceKind>) -> Option<Extents> {
-    self::history::paint_province_kind(self, history, pos, kind)
-  }
-
-  pub fn paint_province_terrain(&mut self, history: &mut History, pos: Vector2<u32>, terrain: String) -> Option<Extents> {
-    self::history::paint_province_terrain(self, history, pos, terrain)
-  }
-
-  pub fn paint_province_continent(&mut self, history: &mut History, pos: Vector2<u32>, continent: u16) -> Option<Extents> {
-    self::history::paint_province_continent(self, history, pos, continent)
-  }
-
-  pub fn paint_entire_province(&mut self, history: &mut History, pos: Vector2<u32>, fill_color: Color) -> Option<Extents> {
-    self::history::paint_entire_province(self, history, pos, fill_color)
-  }
-
-  pub fn paint_pixel_area(&mut self, history: &mut History, pos: Vector2<f64>, radius: f64, color: Color) -> Option<Extents> {
-    self::history::paint_pixel_area(self, history, pos, radius, color)
-  }
-
-  pub fn paint_pixel(&mut self, history: &mut History, pos: Vector2<u32>, color: Color) -> Option<Extents> {
-    self::history::paint_pixel(self, history, pos, color)
   }
 
   pub fn image_buffer_land(&self) -> Option<RgbImage> {
@@ -198,9 +167,9 @@ impl Bundle {
 #[derive(Debug)]
 pub struct Map {
   color_buffer: RgbImage,
-  province_data_map: FxHashMap<Color, ProvinceData>,
+  province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
   connection_data_map: FxHashMap<UOrd<Color>, ConnectionData>,
-  id_data: Option<IdData>
+  preserved_id_count: Option<u32>
 }
 
 impl Map {
@@ -296,6 +265,12 @@ impl Map {
     }
   }
 
+  pub fn extract(&self, extents: Extents) -> RgbImage {
+    use image::GenericImageView;
+    let ([x, y], [width, height]) = extents.to_offset_size();
+    self.color_buffer.view(x, y, width, height).to_image()
+  }
+
   /// Sets the color of a single pixel in `color_buffer` without any checks
   fn put_pixel_raw(&mut self, pos: Vector2<u32>, color: Color) {
     self.color_buffer.put_pixel(pos[0], pos[1], Rgb(color));
@@ -303,33 +278,33 @@ impl Map {
 
   /// Sets the color of a single pixel in `color_buffer`, checks included
   fn put_pixel(&mut self, pos: Vector2<u32>, color: Color) {
-    self.province_data_map.entry(color).or_default().pixel_count += 1;
+    let entry = self.province_data_map.entry(color).or_default();
+    Arc::make_mut(entry).pixel_count += 1;
 
     let previous_color = self.get_color_at(pos);
     self.put_pixel_raw(pos, color);
 
-    let previous_province = self.province_data_map.get_mut(&previous_color)
-      .expect("infallible");
+    let previous_province = self.get_province_mut(previous_color);
     previous_province.pixel_count -= 1;
 
     if previous_province.pixel_count == 0 {
       self.province_data_map.remove(&previous_color);
+      self.remove_related_connections(previous_color);
     };
   }
 
   /// Sets the color of multiple pixels in `color_buffer`, checks included
   fn put_many_pixels(&mut self, pixels: &[(Vector2<u32>, Color)]) {
     for &(_, color) in pixels.iter() {
-      self.province_data_map.entry(color).or_default().pixel_count += 1;
+      let entry = self.province_data_map.entry(color).or_default();
+      Arc::make_mut(entry).pixel_count += 1;
     };
 
     let mut previous_colors = FxHashSet::default();
     for &(pos, color) in pixels {
       let previous_color = self.get_color_at(pos);
       if color != previous_color {
-        let previous_province = self.province_data_map
-          .get_mut(&previous_color)
-          .expect("infallible");
+        let previous_province = self.get_province_mut(previous_color);
         previous_province.pixel_count -= 1;
         previous_colors.insert(previous_color);
         self.put_pixel_raw(pos, color);
@@ -337,13 +312,23 @@ impl Map {
     };
 
     for previous_color in previous_colors {
-      let previous_province = self.province_data_map
-        .get_mut(&previous_color)
-        .expect("infallible");
+      let previous_province = self.get_province_mut(previous_color);
       if previous_province.pixel_count == 0 {
         self.province_data_map.remove(&previous_color);
+        self.remove_related_connections(previous_color);
       };
     };
+  }
+
+  /// Removes all connections which contain the given color
+  fn remove_related_connections(&mut self, which: Color) {
+    self.connection_data_map.retain(|rel, _| !rel.contains(&which));
+  }
+
+  /// Copies another image buffer into the image without any checks
+  fn put_selective_raw(&mut self, buffer: &RgbImage, offset: Vector2<u32>) {
+    use image::GenericImage;
+    self.color_buffer.copy_from(buffer, offset[0], offset[1]).expect("error");
   }
 
   pub fn calculate_coastal_provinces(&self) -> FxHashMap<Color, Option<bool>> {
@@ -395,12 +380,19 @@ impl Map {
   }
 
   /// Replaces all of one color in `color_buffer` without any checks
-  fn replace_color_raw(&mut self, which: Color, color: Color) {
-    for Rgb(pixel) in self.color_buffer.pixels_mut() {
+  fn replace_color_raw(&mut self, which: Color, color: Color) -> Extents {
+    let mut out: Option<Extents> = None;
+    for (x, y, Rgb(pixel)) in self.color_buffer.enumerate_pixels_mut() {
       if *pixel == which {
         *pixel = color;
+        out = Some(match out {
+          Some(extents) => extents.join_point([x, y]),
+          None => Extents::new_point([x, y])
+        });
       };
     };
+
+    out.expect("color not found in map")
   }
 
   /// Replaces the key of one province with a new color in `province_data_map` without any checks
@@ -424,10 +416,24 @@ impl Map {
   }
 
   /// Completely replace all of one color in the map with another
-  fn recolor_province(&mut self, which: Color, color: Color) {
+  pub fn recolor_province(&mut self, which: Color, color: Color) -> Extents {
     self.rekey_province_raw(which, color);
     self.rekey_connections_raw(which, color);
-    self.replace_color_raw(which, color);
+    self.replace_color_raw(which, color)
+  }
+
+  pub fn get_color_extents(&self, which: Color) -> Extents {
+    let mut out: Option<Extents> = None;
+    for (x, y, &Rgb(pixel)) in self.color_buffer.enumerate_pixels() {
+      if pixel == which {
+        out = Some(match out {
+          Some(extents) => extents.join_point([x, y]),
+          None => Extents::new_point([x, y])
+        });
+      };
+    };
+
+    out.expect("color not found in map")
   }
 
   pub fn get_color_at(&self, pos: Vector2<u32>) -> Color {
@@ -439,17 +445,18 @@ impl Map {
   }
 
   fn get_province_mut(&mut self, color: Color) -> &mut ProvinceData {
-    self.province_data_map.get_mut(&color).expect("province not found with color")
+    let province = self.province_data_map.get_mut(&color)
+      .expect("province not found with color");
+    Arc::make_mut(province)
   }
 
   pub fn get_province_at(&self, pos: Vector2<u32>) -> &ProvinceData {
     self.get_province(self.get_color_at(pos))
   }
-}
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct IdData {
-  preserved_id_count: u32
+  pub fn get_connection(&self, rel: UOrd<Color>) -> &ConnectionData {
+    self.connection_data_map.get(&rel).expect("connection not found with rel")
+  }
 }
 
 /// Represents a simple bounding box
@@ -477,6 +484,11 @@ impl Extents {
     Extents { upper: [x_upper, y_upper], lower: [x_lower, y_lower] }
   }
 
+  pub fn new_entire_map(map: &Map) -> Self {
+    let [width, height] = map.dimensions();
+    Extents { upper: [width - 1, height - 1], lower: [0, 0] }
+  }
+
   pub fn join(self, other: Self) -> Self {
     Extents {
       upper: [self.upper[0].max(other.upper[0]), self.upper[1].max(other.upper[1])],
@@ -489,6 +501,10 @@ impl Extents {
       upper: [self.upper[0].max(pos[0]), self.upper[1].max(pos[1])],
       lower: [self.lower[0].min(pos[0]), self.lower[1].min(pos[1])]
     }
+  }
+
+  pub fn to_offset(self) -> Vector2<u32> {
+    self.lower
   }
 
   pub fn to_offset_size(self) -> (Vector2<u32>, Vector2<u32>) {
@@ -507,17 +523,6 @@ pub struct ProvinceData {
 }
 
 impl ProvinceData {
-  pub fn from_definition(definition: Definition) -> Self {
-    ProvinceData {
-      preserved_id: None,
-      kind: definition.kind.into(),
-      terrain: definition.terrain,
-      continent: definition.continent,
-      coastal: Some(definition.coastal),
-      pixel_count: 0
-    }
-  }
-
   pub fn from_definition_config(definition: Definition, config: &Config) -> Self {
     ProvinceData {
       preserved_id: config.preserve_ids.then(|| definition.id),
@@ -559,6 +564,12 @@ impl ProvinceData {
       },
       continent: self.continent
     })
+  }
+
+  fn set_meta(&mut self, kind: ProvinceKind, terrain: String, continent: u16) {
+    self.kind = kind;
+    self.terrain = terrain;
+    self.continent = continent;
   }
 }
 

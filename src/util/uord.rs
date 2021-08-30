@@ -49,11 +49,20 @@ impl<T> UOrd<T> {
   where F: FnMut(T) -> U {
     UOrd::new(f(self.a), f(self.b))
   }
+
+  pub fn map_maybe<F, U>(self, mut f: F) -> Option<UOrd<U>>
+  where F: FnMut(T) -> Option<U> {
+    Some(UOrd::new(f(self.a)?, f(self.b)?))
+  }
 }
 
 impl<T: fmt::Debug + Ord> fmt::Debug for UOrd<T> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    fmt::Debug::fmt(&self.as_tuple(), f)
+    let (a, b) = self.as_tuple();
+    f.debug_tuple("UOrd")
+      .field(a)
+      .field(b)
+      .finish()
   }
 }
 

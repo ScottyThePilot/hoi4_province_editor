@@ -38,9 +38,8 @@ pub struct Canvas {
 
 impl Canvas {
   pub fn load(location: Location) -> Result<Canvas, Error> {
-    let config = Config::load()?;
-    let history = History::new(config.max_undo_states);
-    let bundle = Bundle::load(&location, config)?;
+    let bundle = Bundle::load(&location, Config::load()?)?;
+    let history = History::new(bundle.config.max_undo_states, &bundle.map);
     let texture_settings = TextureSettings::new().mag(Filter::Nearest);
     let texture = Texture::from_image(&bundle.texture_buffer_color(), &texture_settings);
     // The test map is very small with large ocean provinces, the 'too large box' errors go nuts
@@ -52,7 +51,7 @@ impl Canvas {
       bundle,
       history,
       texture,
-      view_mode: ViewMode::Color,
+      view_mode: ViewMode::default(),
       brush: BrushSettings::default(),
       problems,
       unknown_terrains,
@@ -93,9 +92,9 @@ impl Canvas {
     if let (ViewMode::Color, Some(cursor_pos)) = (self.view_mode, cursor_pos) {
       let color = if self.brush.color_brush.is_some() { colors::WHITE } else { colors::WHITE_T };
       let ellipse = Ellipse::new_border(color, 0.5).resolution(16);
-      let radius = self.brush.radius * self.camera.scale_factor();
+      let r = self.brush.radius * self.camera.scale_factor();
       let transform = ctx.transform.trans_pos(cursor_pos);
-      ellipse.draw_from_to([radius, radius], [-radius, -radius], &Default::default(), transform, gl);
+      ellipse.draw_from_to([r, r], [-r, -r], &Default::default(), transform, gl);
     };
 
     let camera_info = self.camera_info(cursor_pos);
@@ -142,35 +141,27 @@ impl Canvas {
   pub fn undo(&mut self) {
     if let Some(commit) = self.history.undo(&mut self.bundle.map) {
       self.problems.clear();
-      if self.view_mode == commit.view_mode {
-        self.refresh_selective(commit.extents);
-      } else {
-        self.view_mode = commit.view_mode;
-        self.refresh();
-      };
+      self.view_mode = commit.view_mode;
+      self.refresh();
     };
   }
 
   pub fn redo(&mut self) {
     if let Some(commit) = self.history.redo(&mut self.bundle.map) {
       self.problems.clear();
-      if self.view_mode == commit.view_mode {
-        self.refresh_selective(commit.extents);
-      } else {
-        self.view_mode = commit.view_mode;
-        self.refresh();
-      };
+      self.view_mode = commit.view_mode;
+      self.refresh();
     };
   }
 
   pub fn calculate_coastal_provinces(&mut self) {
-    self.bundle.calculate_coastal_provinces(&mut self.history);
+    self.history.calculate_coastal_provinces(&mut self.bundle);
     self.view_mode = ViewMode::Coastal;
     self.refresh();
   }
 
   pub fn calculate_recolor_map(&mut self) {
-    self.bundle.calculate_recolor_map(&mut self.history);
+    self.history.calculate_recolor_map(&mut self.bundle);
     self.view_mode = ViewMode::Color;
     self.brush.color_brush = None;
     self.refresh();
@@ -225,7 +216,8 @@ impl Canvas {
         self.brush.continent_brush = Some(continent);
         alerts.push(Ok(format!("Brush set to continent {}", continent)));
       },
-      ViewMode::Coastal => ()
+      ViewMode::Coastal => (),
+      ViewMode::Adjacencies => ()
     };
   }
 
@@ -252,7 +244,8 @@ impl Canvas {
           self.brush.continent_brush = Some(continent);
           alerts.push(Ok(format!("Picked continent {}", continent)));
         },
-        ViewMode::Coastal => ()
+        ViewMode::Coastal => (),
+        ViewMode::Adjacencies => ()
       };
     };
   }
@@ -261,23 +254,23 @@ impl Canvas {
     if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       if let (Some(color), ViewMode::Color) = (self.brush.color_brush, self.view_mode) {
         let pos = self.camera.relative_position(cursor_pos);
-        if let Some(extents) = self.bundle.paint_pixel_area(&mut self.history, pos, self.brush.radius, color) {
+        if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.brush.radius, color) {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);
         };
       } else if let (Some(kind), ViewMode::Kind) = (self.brush.kind_brush, self.view_mode) {
-        if let Some(extents) = self.bundle.paint_province_kind(&mut self.history, pos, kind) {
+        if let Some(extents) = self.history.paint_province_kind(&mut self.bundle, pos, kind) {
           self.modified = true;
           self.refresh_selective(extents);
         };
       } else if let (Some(terrain), ViewMode::Terrain) = (&self.brush.terrain_brush, self.view_mode) {
-        if let Some(extents) = self.bundle.paint_province_terrain(&mut self.history, pos, terrain.clone()) {
+        if let Some(extents) = self.history.paint_province_terrain(&mut self.bundle, pos, terrain.clone()) {
           self.modified = true;
           self.refresh_selective(extents);
         };
       } else if let (Some(continent), ViewMode::Continent) = (self.brush.continent_brush, self.view_mode) {
-        if let Some(extents) = self.bundle.paint_province_continent(&mut self.history, pos, continent) {
+        if let Some(extents) = self.history.paint_province_continent(&mut self.bundle, pos, continent) {
           self.modified = true;
           self.refresh_selective(extents);
         };
@@ -286,7 +279,7 @@ impl Canvas {
   }
 
   pub fn paint_stop(&mut self) {
-    self.history.finish_last_step();
+    self.history.finish_last_step(&self.bundle.map);
   }
 
   pub fn change_brush_radius(&mut self, d: f64) {
@@ -322,7 +315,8 @@ impl Canvas {
       ViewMode::Kind => self.bundle.texture_buffer_kind(),
       ViewMode::Terrain => self.bundle.texture_buffer_terrain(),
       ViewMode::Continent => self.bundle.texture_buffer_continent(),
-      ViewMode::Coastal => self.bundle.texture_buffer_coastal()
+      ViewMode::Coastal => self.bundle.texture_buffer_coastal(),
+      ViewMode::Adjacencies => self.bundle.texture_buffer_color()
     };
 
     self.texture.update(&buffer);
@@ -336,7 +330,8 @@ impl Canvas {
       ViewMode::Kind => self.bundle.texture_buffer_selective_kind(extents),
       ViewMode::Terrain => self.bundle.texture_buffer_selective_terrain(extents),
       ViewMode::Continent => self.bundle.texture_buffer_selective_continent(extents),
-      ViewMode::Coastal => self.bundle.texture_buffer_selective_coastal(extents)
+      ViewMode::Coastal => self.bundle.texture_buffer_selective_coastal(extents),
+      ViewMode::Adjacencies => self.bundle.texture_buffer_selective_color(extents)
     };
 
     UpdateTexture::update(&mut self.texture, &mut (), Format::Rgba8, &buffer, offset, size)
@@ -361,7 +356,8 @@ impl Canvas {
         Some(continent) => format!("continent {}", continent),
         None => "continent (no brush)".to_owned()
       },
-      ViewMode::Coastal => "coastal".to_owned()
+      ViewMode::Coastal => "coastal".to_owned(),
+      ViewMode::Adjacencies => "adjacencies".to_owned()
     }
   }
 
@@ -438,7 +434,14 @@ pub enum ViewMode {
   Kind,
   Terrain,
   Continent,
-  Coastal
+  Coastal,
+  Adjacencies
+}
+
+impl Default for ViewMode {
+  fn default() -> ViewMode {
+    ViewMode::Color
+  }
 }
 
 #[derive(Debug)]

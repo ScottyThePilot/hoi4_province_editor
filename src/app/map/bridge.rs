@@ -161,10 +161,11 @@ fn construct_map_data(
       Entry::Vacant(entry) => {
         let mut province_data = definition_map.remove(&pixel).unwrap_or_default();
         province_data.pixel_count += 1;
-        entry.insert(province_data);
+        entry.insert(Arc::new(province_data));
       },
       Entry::Occupied(entry) => {
-        entry.into_mut().pixel_count += 1;
+        let entry = Arc::make_mut(entry.into_mut());
+        entry.pixel_count += 1;
       }
     };
   };
@@ -193,14 +194,14 @@ fn construct_map_data(
     );
   };
 
-  let id_data = config.preserve_ids.then(|| IdData { preserved_id_count });
+  let id_data = config.preserve_ids.then(|| preserved_id_count );
 
   Bundle {
     map: Map {
       color_buffer,
       province_data_map,
       connection_data_map,
-      id_data
+      preserved_id_count: id_data
     },
     config
   }
@@ -208,7 +209,7 @@ fn construct_map_data(
 
 pub(super) fn recolor_everything(
   color_buffer: &mut RgbImage,
-  province_data_map: &mut FxHashMap<Color, ProvinceData>,
+  province_data_map: &mut FxHashMap<Color, Arc<ProvinceData>>,
   connection_data_map: &mut FxHashMap<UOrd<Color>, ConnectionData>
 ) {
   let mut colors_list = fx_hash_set_with_capacity(province_data_map.len());
@@ -321,9 +322,8 @@ fn deconstruct_map_data(bundle: &Bundle) -> Result<MapData, Error> {
 }
 
 fn deconstruct_map_data_preserve_ids(bundle: &Bundle) -> Result<MapData, Error> {
-  let preserved_id_count = bundle.map.id_data.clone()
-    .expect("config key `preserve-ids` was true, but map contained no id data")
-    .preserved_id_count;
+  let preserved_id_count = bundle.map.preserved_id_count
+    .expect("config key `preserve-ids` was true, but map contained no id data");
 
   let count = bundle.map.provinces_count();
   let mut outlier_definitions = Vec::new();

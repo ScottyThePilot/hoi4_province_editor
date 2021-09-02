@@ -1,5 +1,7 @@
 //! Structures for managing the history state and abstracting changes applied to the map
 use fxhash::FxHashMap;
+use geo::{Coordinate, LineString, Polygon};
+use geo::algorithm::contains::Contains;
 use image::RgbImage;
 use vecmath::Vector2;
 
@@ -258,11 +260,32 @@ impl History {
     }
   }
 
-  pub fn paint_pixel_area(&mut self, bundle: &mut Bundle, pos: Vector2<f64>, radius: f64, color: Color) -> Option<Extents> {
-    let pixels = pixel_area(&bundle.map, pos, radius, color);
+  pub fn paint_pixel_lasso(&mut self, bundle: &mut Bundle, lasso: Vec<Vector2<f64>>, color: Color) -> Option<Extents> {
+    let (extents, pixels) = pixel_lasso(&bundle.map, lasso, color);
     if !pixels.is_empty() {
-      bundle.map.put_many_pixels(&pixels);
-      let extents = Extents::new_pos_radius(pos, radius, bundle.map.dimensions());
+      bundle.map.put_many_pixels(color, &pixels);
+      self.push_map_state_selective(&bundle.map, ViewMode::Color, extents);
+      Some(extents)
+    } else {
+      None
+    }
+  }
+
+  pub fn paint_pixel_bucket(&mut self, bundle: &mut Bundle, pos: Vector2<u32>, color: Color) -> Option<Extents> {
+    let which = bundle.map.get_color_at(pos);
+    if which != color {
+      let extents = bundle.map.flood_fill_province(pos, color);
+      self.push_map_state_selective(&bundle.map, ViewMode::Color, extents);
+      Some(extents)
+    } else {
+      None
+    }
+  }
+
+  pub fn paint_pixel_area(&mut self, bundle: &mut Bundle, pos: Vector2<f64>, radius: f64, color: Color) -> Option<Extents> {
+    let (extents, pixels) = pixel_area(&bundle.map, pos, radius, color);
+    if !pixels.is_empty() {
+      bundle.map.put_many_pixels(color, &pixels);
       self.update_partial_extents(extents);
       Some(extents)
     } else {
@@ -375,15 +398,31 @@ impl From<Extents> for Step {
   }
 }
 
-fn pixel_area(map: &Map, pos: Vector2<f64>, radius: f64, color: Color) -> Vec<(Vector2<u32>, Color)> {
+fn pixel_lasso(map: &Map, lasso: Vec<Vector2<f64>>, color: Color) -> (Extents, Vec<Vector2<u32>>) {
   let mut pixels = Vec::new();
-  for [x, y] in XYIter::from_extents(Extents::new_pos_radius(pos, radius, map.dimensions())) {
-    let distance = f64::hypot(x as f64 + 0.5 - pos[0], y as f64 + 0.5 - pos[1]);
+  let extents = Extents::from_points(&lasso);
+  let lasso = Polygon::new(LineString::from(lasso), Vec::new());
+  for [x, y] in XYIter::from_extents(extents) {
+    let coord = Coordinate::from([x as f64 + 0.5, y as f64 + 0.5]);
     let previous_color = map.get_color_at([x, y]);
-    if distance < radius && color != previous_color {
-      pixels.push(([x, y], color));
+    if color != previous_color && lasso.contains(&coord) {
+      pixels.push([x, y]);
     };
   };
 
-  pixels
+  (extents, pixels)
+}
+
+fn pixel_area(map: &Map, pos: Vector2<f64>, radius: f64, color: Color) -> (Extents, Vec<Vector2<u32>>) {
+  let mut pixels = Vec::new();
+  let extents = Extents::from_pos_radius(pos, radius, map.dimensions());
+  for [x, y] in XYIter::from_extents(extents) {
+    let distance = f64::hypot(x as f64 + 0.5 - pos[0], y as f64 + 0.5 - pos[1]);
+    let previous_color = map.get_color_at([x, y]);
+    if distance < radius && color != previous_color {
+      pixels.push([x, y]);
+    };
+  };
+
+  (extents, pixels)
 }

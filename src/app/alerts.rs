@@ -4,9 +4,15 @@ use graphics::types::Color;
 use opengl_graphics::GlGraphics;
 
 use super::{colors, FontGlyphCache, FONT_SIZE};
+use super::interface::{get_toolbar_height, get_sidebar_width};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 use std::collections::VecDeque;
+
+pub const PADDING: [f64; 2] = [
+  super::interface::PADDING[0] * 2.0,
+  super::interface::PADDING[1] * 2.0
+];
 
 #[derive(Debug)]
 pub struct Alerts {
@@ -55,32 +61,32 @@ impl Alerts {
   }
 
   pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
-    const TOOLBAR_PADDING: f64 = 21.0;
     const LINE_SPACING: f64 = 1.10;
-    const PADDING: f64 = 8.0;
     const WINDOW_HEIGHT_F: f64 = WINDOW_HEIGHT as f64;
     const WINDOW_WIDTH_F: f64 = WINDOW_WIDTH as f64;
     const FONT_HEIGHT: f64 = (FONT_SIZE as f64 * LINE_SPACING * 1.5) as u32 as f64;
 
     if self.active {
-      let height = WINDOW_HEIGHT_F - FONT_HEIGHT - PADDING;
+      let height = WINDOW_HEIGHT_F - FONT_HEIGHT - PADDING[1] * 1.25;
 
       let pos = [WINDOW_WIDTH_F, WINDOW_HEIGHT_F];
       graphics::rectangle_from_to(colors::OVERLAY_T, [0.0, 0.0], pos, ctx.transform, gl);
 
       for (i, (text, color)) in self.iter_all().enumerate() {
+        let x = PADDING[0] + get_sidebar_width();
         let y = height - i as f64 * FONT_HEIGHT;
-        let t = ctx.transform.trans(8.0, y);
+        let t = ctx.transform.trans(x, y);
         graphics::text(color, FONT_SIZE, text, glyph_cache, t, gl)
           .expect("unable to draw text");
       };
     } else {
-      let height = self.len() as f64 * FONT_HEIGHT + 8.0 + TOOLBAR_PADDING;
-      let height = height.min(WINDOW_HEIGHT_F - 8.0);
+      let height = self.len() as f64 * FONT_HEIGHT + PADDING[1] + get_toolbar_height();
+      let height = height.min(WINDOW_HEIGHT_F - PADDING[1] * 1.25);
 
       for (i, (text, color)) in self.iter().enumerate() {
+        let x = PADDING[0] + get_sidebar_width();
         let y = height - i as f64 * FONT_HEIGHT;
-        let t = ctx.transform.trans(8.0, y);
+        let t = ctx.transform.trans(x, y);
         graphics::text(color, FONT_SIZE, text, glyph_cache, t, gl)
           .expect("unable to draw text");
       };

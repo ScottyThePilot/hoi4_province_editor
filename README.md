@@ -32,6 +32,7 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - `3` Land type map view mode
 - `4` Continents map view mode
 - `5` Coastal provinces map view mode
+- `6` Adjacencies map view mode (currently non-functional)
 - `Left-click` will draw with a color or map data while a color or some data is selected
 - `Right-click` will grab and pan the camera around
 - `Middle-click` will pick whatever color or map data that you are pointing at
@@ -50,6 +51,7 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 
 ## Features
 - Map viewing, editing, manupulation, importing and exporting
+- Flood-fill and polygonal lasso tools
 - Support for custom terrain types via `hoi4pe_config.toml`
 - Seeing map errors/warnings graphically (via `Shift-P`)
 - Auto-generating which provinces are coastal (via `Shift-C`)
@@ -58,9 +60,6 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 
 ## Planned Features
 - Support for creating/editing adjacencies
-- Support for states/strategic regions
-- Province selection and multiple province editing
-- Better support for platforms beyond Windows
 
 ## Manually Building
 1. [Install Rust](https://www.rust-lang.org/tools/install)

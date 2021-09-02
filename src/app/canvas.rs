@@ -28,10 +28,10 @@ pub struct Canvas {
   history: History,
   texture: Texture,
   view_mode: ViewMode,
-  brush: BrushSettings,
   problems: Vec<Problem>,
   unknown_terrains: Option<FxHashSet<String>>,
   location: Location,
+  pub tool: ToolSettings,
   pub modified: bool,
   pub camera: Camera
 }
@@ -52,7 +52,7 @@ impl Canvas {
       history,
       texture,
       view_mode: ViewMode::default(),
-      brush: BrushSettings::default(),
+      tool: ToolSettings::default(),
       problems,
       unknown_terrains,
       location,
@@ -82,6 +82,9 @@ impl Canvas {
   }
 
   pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+    use super::alerts::PADDING;
+    use super::interface::get_sidebar_width;
+
     let transform = ctx.transform.append_transform(self.camera.display_matrix);
     graphics::image(&self.texture, transform, gl);
 
@@ -89,16 +92,30 @@ impl Canvas {
       problem.draw(ctx, self.camera.display_matrix, gl);
     };
 
-    if let (ViewMode::Color, Some(cursor_pos)) = (self.view_mode, cursor_pos) {
-      let color = if self.brush.color_brush.is_some() { colors::WHITE } else { colors::WHITE_T };
-      let ellipse = Ellipse::new_border(color, 0.5).resolution(16);
-      let r = self.brush.radius * self.camera.scale_factor();
-      let transform = ctx.transform.trans_pos(cursor_pos);
-      ellipse.draw_from_to([r, r], [-r, -r], &Default::default(), transform, gl);
+    let color = if self.tool.color_brush.is_some() { colors::WHITE } else { colors::WHITE_T };
+
+    match (self.view_mode, &self.tool.mode, cursor_pos) {
+      (ViewMode::Color, ToolMode::PaintArea, Some(cursor_pos)) => {
+        let ellipse = Ellipse::new_border(color, 0.5).resolution(16);
+        let r = self.tool.radius * self.camera.scale_factor();
+        let transform = ctx.transform.trans_pos(cursor_pos);
+        ellipse.draw_from_to([r, r], [-r, -r], &Default::default(), transform, gl);
+      },
+      (ViewMode::Color, ToolMode::Lasso(lasso), cursor_pos) => {
+        let points = lasso.iter()
+          .map(|&pos| self.camera.compute_position(pos))
+          .chain(cursor_pos.into_iter())
+          .tuple_windows();
+        for (pos1, pos2) in points {
+          graphics::line_from_to(color, 0.5, pos1, pos2, ctx.transform, gl);
+        };
+      },
+      _ => ()
     };
 
     let camera_info = self.camera_info(cursor_pos);
-    let transform = ctx.transform.trans(8.0, WINDOW_HEIGHT as f64 - 8.0);
+    let pos = [PADDING[0] + get_sidebar_width(), WINDOW_HEIGHT as f64 - PADDING[1] * 1.25];
+    let transform = ctx.transform.trans_pos(pos);
     graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
       .expect("unable to draw text");
   }
@@ -163,7 +180,7 @@ impl Canvas {
   pub fn calculate_recolor_map(&mut self) {
     self.history.calculate_recolor_map(&mut self.bundle);
     self.view_mode = ViewMode::Color;
-    self.brush.color_brush = None;
+    self.tool.color_brush = None;
     self.refresh();
   }
 
@@ -178,14 +195,27 @@ impl Canvas {
     };
   }
 
-  pub fn brush_mut(&mut self) -> &mut BrushSettings {
-    &mut self.brush
+  pub fn set_view_mode(&mut self, alerts: &mut Alerts, view_mode: ViewMode) {
+    if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, self.unknown_terrains()) {
+      alerts.push(Err(unknown_terrains));
+    } else if view_mode != self.view_mode {
+      if let ViewMode::Color = self.view_mode {
+        self.cancel_tool();
+      };
+
+      self.view_mode = view_mode;
+      self.refresh();
+    };
   }
 
-  pub fn cycle_brush(&mut self, cursor_pos: Option<Vector2<f64>>, alerts: &mut Alerts) {
+  pub fn set_tool_mode(&mut self, mode: ToolMode) {
+    self.tool.mode = mode;
+  }
+
+  pub fn cycle_tool_brush(&mut self, cursor_pos: Option<Vector2<f64>>, alerts: &mut Alerts) {
     match self.view_mode {
       ViewMode::Color => {
-        let kind = self.brush.kind_brush
+        let kind = self.tool.kind_brush
           .map(ProvinceKind::from)
           .or_else(|| {
             let pos = cursor_pos.and_then(|cursor_pos| {
@@ -195,25 +225,25 @@ impl Canvas {
           })
           .unwrap_or(ProvinceKind::Land);
         let color = self.bundle.random_color_pure(kind);
-        self.brush.color_brush = Some(color);
+        self.tool.color_brush = Some(color);
         alerts.push(Ok(format!("Brush set to color {}", stringify_color(color))))
       },
       ViewMode::Kind => {
-        let kind = self.brush.kind_brush;
+        let kind = self.tool.kind_brush;
         let kind = self.bundle.config.cycle_kinds(kind);
-        self.brush.kind_brush = Some(kind);
+        self.tool.kind_brush = Some(kind);
         alerts.push(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
       },
       ViewMode::Terrain => {
-        let terrain = self.brush.terrain_brush.as_deref();
+        let terrain = self.tool.terrain_brush.as_deref();
         let terrain = self.bundle.config.cycle_terrains(terrain);
         alerts.push(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
-        self.brush.terrain_brush = Some(terrain);
+        self.tool.terrain_brush = Some(terrain);
       },
       ViewMode::Continent => {
-        let continent = self.brush.continent_brush;
+        let continent = self.tool.continent_brush;
         let continent = self.bundle.config.cycle_continents(continent);
-        self.brush.continent_brush = Some(continent);
+        self.tool.continent_brush = Some(continent);
         alerts.push(Ok(format!("Brush set to continent {}", continent)));
       },
       ViewMode::Coastal => (),
@@ -221,27 +251,27 @@ impl Canvas {
     };
   }
 
-  pub fn pick_brush(&mut self, cursor_pos: Vector2<f64>, alerts: &mut Alerts) {
+  pub fn pick_tool_brush(&mut self, cursor_pos: Vector2<f64>, alerts: &mut Alerts) {
     if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       let color = self.bundle.map.get_color_at(pos);
       let province_data = self.bundle.map.get_province_at(pos);
       match self.view_mode {
         ViewMode::Color => {
-          self.brush.color_brush = Some(color);
+          self.tool.color_brush = Some(color);
           alerts.push(Ok(format!("Picked color {}", stringify_color(color))));
         },
         ViewMode::Kind => if let Some(kind) = province_data.kind.to_definition_kind() {
-          self.brush.kind_brush = Some(kind);
+          self.tool.kind_brush = Some(kind);
           alerts.push(Ok(format!("Picked type {}", kind.to_str().to_uppercase())));
         },
         ViewMode::Terrain => if province_data.terrain != "unknown" {
           let terrain = province_data.terrain.as_str();
-          self.brush.terrain_brush = Some(terrain.to_owned());
+          self.tool.terrain_brush = Some(terrain.to_owned());
           alerts.push(Ok(format!("Picked terrain {}", terrain.to_uppercase())));
         },
         ViewMode::Continent => {
           let continent = province_data.continent;
-          self.brush.continent_brush = Some(continent);
+          self.tool.continent_brush = Some(continent);
           alerts.push(Ok(format!("Picked continent {}", continent)));
         },
         ViewMode::Coastal => (),
@@ -250,26 +280,100 @@ impl Canvas {
     };
   }
 
-  pub fn paint_brush(&mut self, cursor_pos: Vector2<f64>) {
-    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
-      if let (Some(color), ViewMode::Color) = (self.brush.color_brush, self.view_mode) {
-        let pos = self.camera.relative_position(cursor_pos);
-        if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.brush.radius, color) {
+  pub fn change_tool_radius(&mut self, d: f64) {
+    const LIMIT: f64 = std::f64::consts::SQRT_2 / 2.0;
+    if let (ViewMode::Color, ToolMode::PaintArea) = (self.view_mode, &self.tool.mode) {
+      let r = self.tool.radius;
+      let d = d * (1.0 + 0.025 * r);
+      self.tool.radius = (r + d).max(LIMIT);
+    };
+  }
+
+  /// Activates the tool, ie, performs a left-click action
+  pub fn activate_tool(&mut self, cursor_pos: Vector2<f64>) {
+    if let ViewMode::Color = self.view_mode {
+      match self.tool.mode {
+        ToolMode::PaintArea => self.tool_paint_brush(cursor_pos),
+        ToolMode::PaintBucket => self.tool_paint_bucket(cursor_pos),
+        ToolMode::Lasso(_) => {
+          let point = self.camera.relative_position(cursor_pos);
+          self.tool_lasso_add_point(point);
+        }
+      };
+    } else {
+      self.tool_paint_brush(cursor_pos);
+    };
+  }
+
+  /// Deactivates the tool, ie, performs a release-left-click action
+  pub fn deactivate_tool(&mut self) {
+    if let ToolMode::PaintArea = self.tool.mode {
+      self.tool_paint_end();
+    };
+  }
+
+  pub fn cancel_tool(&mut self) {
+    if let ToolMode::Lasso(lasso) = &mut self.tool.mode {
+      lasso.clear();
+    };
+  }
+
+  pub fn finish_tool(&mut self) {
+    if let ToolMode::Lasso(lasso) = &mut self.tool.mode {
+      let lasso = lasso.drain(..).collect();
+      self.tool_lasso_finish(lasso);
+    };
+  }
+
+  fn tool_lasso_add_point(&mut self, point: Vector2<f64>) {
+    let lasso = self.tool.mode.unwrap_lasso();
+    // If user attempts to place a point next to the beginning node,
+    // or next to the node they just placed (hacky double click detection)
+    // then the lasso will be finished
+    let finish = Iterator::chain(lasso.first().iter(), lasso.last().iter())
+      .any(|&&p| f64::hypot(p[0] - point[0], p[1] - point[1]) < 2.0);
+    if finish {
+      if lasso.len() > 2 {
+        let lasso = lasso.drain(..).collect();
+        self.tool_lasso_finish(lasso);
+      };
+    } else {
+      lasso.push(point);
+    }
+  }
+
+  fn tool_lasso_finish(&mut self, lasso: Vec<Vector2<f64>>) {
+    if let (Some(color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
+      if lasso.len() > 2 {
+        if let Some(extents) = self.history.paint_pixel_lasso(&mut self.bundle, lasso, color) {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);
         };
-      } else if let (Some(kind), ViewMode::Kind) = (self.brush.kind_brush, self.view_mode) {
+      };
+    };
+  }
+
+  fn tool_paint_brush(&mut self, cursor_pos: Vector2<f64>) {
+    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
+      if let (Some(color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
+        let pos = self.camera.relative_position(cursor_pos);
+        if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.tool.radius, color) {
+          self.problems.clear();
+          self.modified = true;
+          self.refresh_selective(extents);
+        };
+      } else if let (Some(kind), ViewMode::Kind) = (self.tool.kind_brush, self.view_mode) {
         if let Some(extents) = self.history.paint_province_kind(&mut self.bundle, pos, kind) {
           self.modified = true;
           self.refresh_selective(extents);
         };
-      } else if let (Some(terrain), ViewMode::Terrain) = (&self.brush.terrain_brush, self.view_mode) {
+      } else if let (Some(terrain), ViewMode::Terrain) = (&self.tool.terrain_brush, self.view_mode) {
         if let Some(extents) = self.history.paint_province_terrain(&mut self.bundle, pos, terrain.clone()) {
           self.modified = true;
           self.refresh_selective(extents);
         };
-      } else if let (Some(continent), ViewMode::Continent) = (self.brush.continent_brush, self.view_mode) {
+      } else if let (Some(continent), ViewMode::Continent) = (self.tool.continent_brush, self.view_mode) {
         if let Some(extents) = self.history.paint_province_continent(&mut self.bundle, pos, continent) {
           self.modified = true;
           self.refresh_selective(extents);
@@ -278,25 +382,19 @@ impl Canvas {
     };
   }
 
-  pub fn paint_stop(&mut self) {
+  fn tool_paint_end(&mut self) {
     self.history.finish_last_step(&self.bundle.map);
   }
 
-  pub fn change_brush_radius(&mut self, d: f64) {
-    const LIMIT: f64 = std::f64::consts::SQRT_2 / 2.0;
-    if let ViewMode::Color = self.view_mode {
-      let r = self.brush.radius;
-      let d = d * (1.0 + 0.025 * r);
-      self.brush.radius = (r + d).max(LIMIT);
-    };
-  }
-
-  pub fn set_view_mode(&mut self, alerts: &mut Alerts, view_mode: ViewMode) {
-    if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, self.unknown_terrains()) {
-      alerts.push(Err(unknown_terrains));
-    } else if view_mode != self.view_mode {
-      self.view_mode = view_mode;
-      self.refresh();
+  fn tool_paint_bucket(&mut self, cursor_pos: Vector2<f64>) {
+    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
+      if let (Some(fill_color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
+        if let Some(extents) = self.history.paint_pixel_bucket(&mut self.bundle, pos, fill_color) {
+          self.problems.clear();
+          self.modified = true;
+          self.refresh_selective(extents);
+        };
+      };
     };
   }
 
@@ -340,19 +438,19 @@ impl Canvas {
 
   fn brush_info(&self) -> String {
     match self.view_mode {
-      ViewMode::Color => match self.brush.color_brush {
+      ViewMode::Color => match self.tool.color_brush {
         Some(color) => format!("color {}", stringify_color(color)),
         None => "color (no brush)".to_owned()
       },
-      ViewMode::Kind => match self.brush.kind_brush {
+      ViewMode::Kind => match self.tool.kind_brush {
         Some(kind) => format!("type {}", kind.to_str().to_uppercase()),
         None => "type (no brush)".to_owned()
       },
-      ViewMode::Terrain => match &self.brush.terrain_brush {
+      ViewMode::Terrain => match &self.tool.terrain_brush {
         Some(terrain) => format!("terrain {}", terrain.to_uppercase()),
         None => "terrain (no brush)".to_owned()
       },
-      ViewMode::Continent => match self.brush.continent_brush {
+      ViewMode::Continent => match self.tool.continent_brush {
         Some(continent) => format!("continent {}", continent),
         None => "continent (no brush)".to_owned()
       },
@@ -378,7 +476,7 @@ impl fmt::Debug for Canvas {
       .field("history", &self.history)
       .field("texture", &format_args!("..."))
       .field("view_mode", &self.view_mode)
-      .field("brush", &self.brush)
+      .field("tool", &self.tool)
       .field("problems", &self.problems)
       .field("unknown_terrains", &self.unknown_terrains)
       .field("location", &self.location)
@@ -391,40 +489,44 @@ impl fmt::Debug for Canvas {
 
 
 #[derive(Debug, Clone)]
-pub struct BrushSettings {
+pub struct ToolSettings {
   pub color_brush: Option<Color>,
   pub kind_brush: Option<DefinitionKind>,
   pub terrain_brush: Option<String>,
   pub continent_brush: Option<u16>,
-  pub mode: BrushMode,
-  pub radius: f64
+  pub radius: f64,
+  pub mode: ToolMode
 }
 
-impl Default for BrushSettings {
-  fn default() -> BrushSettings {
-    BrushSettings {
+impl Default for ToolSettings {
+  fn default() -> ToolSettings {
+    ToolSettings {
       color_brush: None,
       kind_brush: None,
       terrain_brush: None,
       continent_brush: None,
-      mode: BrushMode::default(),
-      radius: 8.0
+      radius: 8.0,
+      mode: ToolMode::default()
     }
   }
 }
 
 #[derive(Debug, Clone)]
-pub enum BrushMode {
-  Paint,
-  FloodFill,
-  PolygonalLasso {
-    points: Vec<Vector2<f64>>
+pub enum ToolMode {
+  PaintArea,
+  PaintBucket,
+  Lasso(Vec<Vector2<f64>>)
+}
+
+impl ToolMode {
+  fn unwrap_lasso(&mut self) -> &mut Vec<Vector2<f64>> {
+    if let ToolMode::Lasso(lasso) = self { lasso } else { panic!() }
   }
 }
 
-impl Default for BrushMode {
-  fn default() -> BrushMode {
-    BrushMode::Paint
+impl Default for ToolMode {
+  fn default() -> ToolMode {
+    ToolMode::PaintArea
   }
 }
 
@@ -466,6 +568,7 @@ impl Camera {
     }
   }
 
+
   pub fn on_mouse_relative(&mut self, rel: Vector2<f64>) {
     if self.panning {
       let rel = vecmath::vec2_scale(rel, self.scale_factor().recip());
@@ -493,6 +596,7 @@ impl Camera {
     self.panning = panning;
   }
 
+  /// Converts a point from camera space to map space
   fn relative_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
     vecmath::row_mat2x3_transform_pos2(self.display_matrix_inv(), pos)
   }
@@ -501,6 +605,11 @@ impl Camera {
     let pos = self.relative_position(pos);
     self.within_dimensions(pos)
       .then(|| [pos[0] as u32, pos[1] as u32])
+  }
+
+  /// Converts from map space to camera space
+  fn compute_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
+    vecmath::row_mat2x3_transform_pos2(self.display_matrix, pos)
   }
 
   fn display_matrix_inv(&self) -> Matrix2x3<f64> {

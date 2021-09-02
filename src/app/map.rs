@@ -294,14 +294,12 @@ impl Map {
   }
 
   /// Sets the color of multiple pixels in `color_buffer`, checks included
-  fn put_many_pixels(&mut self, pixels: &[(Vector2<u32>, Color)]) {
-    for &(_, color) in pixels.iter() {
-      let entry = self.province_data_map.entry(color).or_default();
-      Arc::make_mut(entry).pixel_count += 1;
-    };
+  fn put_many_pixels(&mut self, color: Color, pixels: &[Vector2<u32>]) {
+    let entry = self.province_data_map.entry(color).or_default();
+    Arc::make_mut(entry).pixel_count += 1;
 
     let mut previous_colors = FxHashSet::default();
-    for &(pos, color) in pixels {
+    for &pos in pixels {
       let previous_color = self.get_color_at(pos);
       if color != previous_color {
         let previous_province = self.get_province_mut(previous_color);
@@ -417,9 +415,58 @@ impl Map {
 
   /// Completely replace all of one color in the map with another
   pub fn recolor_province(&mut self, which: Color, color: Color) -> Extents {
+    assert_ne!(which, color, "Attempted to recolor a province when it is already the desired color");
     self.rekey_province_raw(which, color);
     self.rekey_connections_raw(which, color);
     self.replace_color_raw(which, color)
+  }
+
+  pub fn flood_fill_province(&mut self, pos: Vector2<u32>, color: Color) -> Extents {
+    let which = self.get_color_at(pos);
+    assert_ne!(which, color, "Attempted to flood-fill a province when it is already the desired color");
+    let (extents, _) = self.flood_fill_raw(pos, which, color);
+
+    let previous_province = self.get_province_mut(which);
+    if previous_province.pixel_count == 0 {
+      self.province_data_map.remove(&which);
+      self.remove_related_connections(which);
+    };
+
+    extents
+  }
+
+  /// Recursively attempts to replace the given color with the
+  /// given replacement color at the given position, and then repeats the process
+  /// with each pixel in each cardinal direction
+  fn flood_fill_raw(&mut self, pos: Vector2<u32>, which: Color, color: Color) -> (Extents, bool) {
+    const CARDINAL: [Vector2<i32>; 4] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+    let mut extents = Extents::new_point(pos);
+
+    let entry = self.province_data_map.entry(color).or_default();
+    Arc::make_mut(entry).pixel_count += 1;
+
+    self.put_pixel_raw(pos, color);
+
+    let previous_province = self.get_province_mut(which);
+    previous_province.pixel_count -= 1;
+
+    if previous_province.pixel_count == 0 {
+      return (extents, false);
+    };
+
+    self.put_pixel_raw(pos, color);
+    let [width, height] = self.dimensions();
+    for &diff in CARDINAL.iter() {
+      let x = pos[0].wrapping_add(diff[0] as u32);
+      let y = pos[1].wrapping_add(diff[1] as u32);
+      if x < width && y < height && self.get_color_at([x, y]) == which {
+        let (ext, cont) = self.flood_fill_raw([x, y], which, color);
+        extents = extents.join(ext);
+        if !cont { return (extents, false) };
+      };
+    };
+
+    (extents, true)
   }
 
   pub fn get_color_extents(&self, which: Color) -> Extents {
@@ -476,7 +523,12 @@ impl Extents {
     Extents { upper: pos, lower: pos }
   }
 
-  pub fn new_pos_radius(pos: Vector2<f64>, radius: f64, max: Vector2<u32>) -> Self {
+  pub fn new_entire_map(map: &Map) -> Self {
+    let [width, height] = map.dimensions();
+    Extents { upper: [width - 1, height - 1], lower: [0, 0] }
+  }
+
+  pub fn from_pos_radius(pos: Vector2<f64>, radius: f64, max: Vector2<u32>) -> Self {
     let x_lower = ((pos[0] - radius).floor() as u32).min(max[0] - 1);
     let y_lower = ((pos[1] - radius).floor() as u32).min(max[1] - 1);
     let x_upper = ((pos[0] + radius).ceil() as u32).min(max[0] - 1);
@@ -484,9 +536,17 @@ impl Extents {
     Extents { upper: [x_upper, y_upper], lower: [x_lower, y_lower] }
   }
 
-  pub fn new_entire_map(map: &Map) -> Self {
-    let [width, height] = map.dimensions();
-    Extents { upper: [width - 1, height - 1], lower: [0, 0] }
+  pub fn from_points(points: &[Vector2<f64>]) -> Self {
+    let mut lower = vec2_floor(points[0]);
+    let mut upper = vec2_ceil(points[0]);
+    for &[x, y] in &points[1..] {
+      lower[0] = lower[0].min(x.floor() as u32);
+      lower[1] = lower[1].min(y.floor() as u32);
+      upper[0] = upper[0].max(x.ceil() as u32);
+      upper[1] = upper[1].max(y.ceil() as u32);
+    };
+
+    Extents { upper, lower }
   }
 
   pub fn join(self, other: Self) -> Self {
@@ -510,6 +570,14 @@ impl Extents {
   pub fn to_offset_size(self) -> (Vector2<u32>, Vector2<u32>) {
     (self.lower, [self.upper[0] - self.lower[0] + 1, self.upper[1] - self.lower[1] + 1])
   }
+}
+
+fn vec2_floor(point: Vector2<f64>) -> Vector2<u32> {
+  [point[0].floor() as u32, point[1].floor() as u32]
+}
+
+fn vec2_ceil(point: Vector2<f64>) -> Vector2<u32> {
+  [point[0].ceil() as u32, point[1].ceil() as u32]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -15,7 +15,7 @@ use vecmath::Vector2;
 use crate::error::Error;
 use crate::events::{EventHandler, KeyMods};
 use self::alerts::Alerts;
-use self::canvas::{Canvas, ViewMode};
+use self::canvas::{Canvas, ToolMode, ViewMode};
 use self::interface::{Interface, ButtonId};
 use self::map::{Location, IntoLocation};
 
@@ -107,7 +107,9 @@ impl EventHandler for App {
       (Some(_), true, Key::R) if mods.ctrl && mods.alt => self.action_reveal_map(),
       (Some(canvas), true, Key::Z) if mods.ctrl => canvas.undo(),
       (Some(canvas), true, Key::Y) if mods.ctrl => canvas.redo(),
-      (Some(canvas), true, Key::Space) => canvas.cycle_brush(cursor_pos, &mut self.alerts),
+      (Some(canvas), true, Key::Space) => canvas.cycle_tool_brush(cursor_pos, &mut self.alerts),
+      (Some(canvas), true, Key::Escape) => canvas.cancel_tool(),
+      (Some(canvas), true, Key::Return) => canvas.finish_tool(),
       (Some(canvas), true, Key::C) if mods.shift => canvas.calculate_coastal_provinces(),
       (Some(canvas), true, Key::R) if mods.shift => canvas.calculate_recolor_map(),
       (Some(canvas), true, Key::P) if mods.shift => canvas.display_problems(&mut self.alerts),
@@ -126,13 +128,13 @@ impl EventHandler for App {
     match (&mut self.canvas, state, button) {
       (_, true, MouseButton::Left) => match self.interface.on_mouse_click(pos) {
         Ok(id) => self.action_interface_button(id),
-        Err(true) => self.action_start_painting(pos),
+        Err(true) => self.action_activate_tool(pos),
         Err(false) => ()
       },
-      (Some(_), false, MouseButton::Left) => self.action_stop_painting(),
+      (Some(_), false, MouseButton::Left) => self.action_deactivate_tool(),
       (Some(canvas), true, MouseButton::Right) => canvas.camera.set_panning(true),
       (Some(canvas), false, MouseButton::Right) => canvas.camera.set_panning(false),
-      (Some(canvas), true, MouseButton::Middle) => canvas.pick_brush(pos, &mut self.alerts),
+      (Some(canvas), true, MouseButton::Middle) => canvas.pick_tool_brush(pos, &mut self.alerts),
       _ => ()
     };
   }
@@ -140,8 +142,9 @@ impl EventHandler for App {
   fn on_mouse_position(&mut self, pos: Vector2<f64>) {
     self.interface.on_mouse_position(pos);
     if let Some(canvas) = &mut self.canvas {
-      if self.painting {
-        canvas.paint_brush(pos);
+      // Mouse movement should not activate the tool for the paint bucket and lasso tools
+      if self.painting && matches!(canvas.tool.mode, ToolMode::PaintArea) {
+        canvas.activate_tool(pos);
       };
     };
   }
@@ -155,7 +158,7 @@ impl EventHandler for App {
   fn on_mouse_scroll(&mut self, [_, y]: Vector2<f64>, mods: KeyMods, cursor_pos: Vector2<f64>) {
     if let Some(canvas) = &mut self.canvas {
       if mods.shift {
-        canvas.change_brush_radius(y);
+        canvas.change_tool_radius(y);
       } else {
         canvas.camera.on_mouse_zoom(y, cursor_pos);
       };
@@ -215,21 +218,24 @@ impl App {
       (Some(canvas), ToolbarViewMode5) => canvas.set_view_mode(&mut self.alerts, ViewMode::Coastal),
       (Some(canvas), ToolbarViewMode6) => canvas.set_view_mode(&mut self.alerts, ViewMode::Adjacencies),
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
+      (Some(canvas), SidebarToolPaintArea) => canvas.set_tool_mode(ToolMode::PaintArea),
+      (Some(canvas), SidebarToolPaintBucket) => canvas.set_tool_mode(ToolMode::PaintBucket),
+      (Some(canvas), SidebarToolLasso) => canvas.set_tool_mode(ToolMode::Lasso(Vec::new())),
       (None, _) => self.alerts.push(Err("You must have a map loaded to use this")),
     };
   }
 
-  fn action_start_painting(&mut self, pos: Vector2<f64>) {
+  fn action_activate_tool(&mut self, pos: Vector2<f64>) {
     self.painting = true;
     if let Some(canvas) = &mut self.canvas {
-      canvas.paint_brush(pos);
+      canvas.activate_tool(pos);
     };
   }
 
-  fn action_stop_painting(&mut self) {
+  fn action_deactivate_tool(&mut self) {
     self.painting = false;
     if let Some(canvas) = &mut self.canvas {
-      canvas.paint_stop();
+      canvas.deactivate_tool();
     };
   }
 

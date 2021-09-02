@@ -7,8 +7,8 @@ the game.
 This program is not a complete replacement for MapGen, it is intended to be used to edit a map you have already
 generated with MapGen, or for making tweaks to an already complete map.
 
-![Province Map Mode](https://imgur.com/OP2NnHf.png)
-![Terrain Map Mode](https://imgur.com/OnU2Mwf.png)
+![Province Map Mode](images/hoi4pe_color.png)
+![Terrain Map Mode](images/hoi4pe_terrain.png)
 
 To load a map, you can do one of the following:
 - Drag a folder and it will look for a `provinces.bmp` and `definition.csv` inside that folder
@@ -48,6 +48,8 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - `Shift-P` will calculate and display symbols indicating map errors/warnings
 - `H` resets the camera view
 - `Tab` show all recent informative alert messages
+- `Escape` to cancel a lasso
+- `Enter` to complete a lasso
 
 ## Features
 - Map viewing, editing, manupulation, importing and exporting

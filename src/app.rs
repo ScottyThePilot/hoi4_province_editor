@@ -28,6 +28,7 @@ pub mod colors {
 
   pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
   pub const WHITE_T: Color = [1.0, 1.0, 1.0, 0.25];
+  pub const WHITE_TT: Color = [1.0, 1.0, 1.0, 0.015625];
   pub const PROBLEM: Color = [0.875, 0.0, 0.0, 1.0];
   pub const NEUTRAL: Color = [0.25, 0.25, 0.25, 1.0];
   pub const OVERLAY_T: Color = [0.0, 0.0, 0.0, 0.5];
@@ -220,7 +221,9 @@ impl App {
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
       (Some(canvas), SidebarToolPaintArea) => canvas.set_tool_mode(ToolMode::PaintArea),
       (Some(canvas), SidebarToolPaintBucket) => canvas.set_tool_mode(ToolMode::PaintBucket),
-      (Some(canvas), SidebarToolLasso) => canvas.set_tool_mode(ToolMode::Lasso(Vec::new())),
+      (Some(canvas), SidebarToolLasso) => canvas.set_tool_mode(ToolMode::new_lasso()),
+      #[cfg(debug_assertions)]
+      (Some(canvas), ToolbarDebugValidatePixelCounts) => canvas.validate_pixel_counts(&mut self.alerts),
       (None, _) => self.alerts.push(Err("You must have a map loaded to use this")),
     };
   }

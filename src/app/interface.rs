@@ -363,6 +363,8 @@ pub enum ButtonId {
   ToolbarViewMode4,
   ToolbarViewMode5,
   ToolbarViewMode6,
+  #[cfg(debug_assertions)]
+  ToolbarDebugValidatePixelCounts,
   ToolbarViewResetZoom,
   SidebarToolPaintArea,
   SidebarToolPaintBucket,
@@ -390,7 +392,7 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Redo", "Ctrl+Y", ButtonId::ToolbarEditRedo),
     ("Re-calculate Coastal Provinces", "Shift+C", ButtonId::ToolbarEditCoastal),
     ("Re-color Provinces", "Shift+R", ButtonId::ToolbarEditRecolor),
-    ("Calculate Map Errors/Warnings", "Shift+P", ButtonId::ToolbarEditProblems),
+    ("Calculate Map Errors/Warnings", "Shift+P", ButtonId::ToolbarEditProblems)
   ]),
   ("View", &[
     ("Color/Province Map View Mode", "1", ButtonId::ToolbarViewMode1),
@@ -399,7 +401,11 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Continents Map View Mode", "4", ButtonId::ToolbarViewMode4),
     ("Coastal Provinces Map View Mode", "5", ButtonId::ToolbarViewMode5),
     ("Adjacencies Map View Mode", "6", ButtonId::ToolbarViewMode6),
-    ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom),
+    ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom)
+  ]),
+  #[cfg(debug_assertions)]
+  ("Debug", &[
+    ("Validate Pixel Counts", "", ButtonId::ToolbarDebugValidatePixelCounts)
   ])
 ];
 

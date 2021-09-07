@@ -271,51 +271,43 @@ impl Map {
     self.color_buffer.view(x, y, width, height).to_image()
   }
 
-  /// Sets the color of a single pixel in `color_buffer` without any checks
-  fn put_pixel_raw(&mut self, pos: Vector2<u32>, color: Color) {
-    self.color_buffer.put_pixel(pos[0], pos[1], Rgb(color));
-  }
+  /// Sets the color of a single pixel in `color_buffer` and manages the
+  /// pixel counts of all relevant provinces, returning Some(Color) if the
+  /// province whos pixel was replaced no longer has any pixels left
+  fn put_pixel_raw(&mut self, pos: Vector2<u32>, color: Color) -> Option<Color> {
+    let pixel = self.color_buffer.get_pixel_mut(pos[0], pos[1]);
+    let Rgb(previous_color) = std::mem::replace(pixel, Rgb(color));
 
-  /// Sets the color of a single pixel in `color_buffer`, checks included
-  fn put_pixel(&mut self, pos: Vector2<u32>, color: Color) {
     let entry = self.province_data_map.entry(color).or_default();
     Arc::make_mut(entry).pixel_count += 1;
-
-    let previous_color = self.get_color_at(pos);
-    self.put_pixel_raw(pos, color);
 
     let previous_province = self.get_province_mut(previous_color);
     previous_province.pixel_count -= 1;
 
     if previous_province.pixel_count == 0 {
-      self.province_data_map.remove(&previous_color);
-      self.remove_related_connections(previous_color);
+      Some(previous_color)
+    } else {
+      None
+    }
+  }
+
+  /// Sets the color of a single pixel in `color_buffer`, checks included
+  fn put_pixel(&mut self, pos: Vector2<u32>, color: Color) {
+    if let Some(erased_color) = self.put_pixel_raw(pos, color) {
+      self.erase_province_data(erased_color);
     };
   }
 
   /// Sets the color of multiple pixels in `color_buffer`, checks included
   fn put_many_pixels(&mut self, color: Color, pixels: &[Vector2<u32>]) {
-    let entry = self.province_data_map.entry(color).or_default();
-    Arc::make_mut(entry).pixel_count += 1;
-
-    let mut previous_colors = FxHashSet::default();
     for &pos in pixels {
-      let previous_color = self.get_color_at(pos);
-      if color != previous_color {
-        let previous_province = self.get_province_mut(previous_color);
-        previous_province.pixel_count -= 1;
-        previous_colors.insert(previous_color);
-        self.put_pixel_raw(pos, color);
-      };
+      self.put_pixel(pos, color);
     };
+  }
 
-    for previous_color in previous_colors {
-      let previous_province = self.get_province_mut(previous_color);
-      if previous_province.pixel_count == 0 {
-        self.province_data_map.remove(&previous_color);
-        self.remove_related_connections(previous_color);
-      };
-    };
+  fn erase_province_data(&mut self, color: Color) {
+    self.province_data_map.remove(&color);
+    self.remove_related_connections(color);
   }
 
   /// Removes all connections which contain the given color
@@ -327,6 +319,21 @@ impl Map {
   fn put_selective_raw(&mut self, buffer: &RgbImage, offset: Vector2<u32>) {
     use image::GenericImage;
     self.color_buffer.copy_from(buffer, offset[0], offset[1]).expect("error");
+  }
+
+  pub fn validate_pixel_counts(&self) -> bool {
+    let mut pixel_counts = FxHashMap::<Color, u64>::default();
+    for &Rgb(pixel) in self.color_buffer.pixels() {
+      *pixel_counts.entry(pixel).or_insert(0) += 1;
+    };
+
+    for (color, province_data) in self.province_data_map.iter() {
+      if pixel_counts.get(color) != Some(&province_data.pixel_count) {
+        return false;
+      };
+    };
+
+    true
   }
 
   pub fn calculate_coastal_provinces(&self) -> FxHashMap<Color, Option<bool>> {
@@ -424,12 +431,10 @@ impl Map {
   pub fn flood_fill_province(&mut self, pos: Vector2<u32>, color: Color) -> Extents {
     let which = self.get_color_at(pos);
     assert_ne!(which, color, "Attempted to flood-fill a province when it is already the desired color");
-    let (extents, _) = self.flood_fill_raw(pos, which, color);
+    let (extents, erased) = self.flood_fill_raw(pos, which, color);
 
-    let previous_province = self.get_province_mut(which);
-    if previous_province.pixel_count == 0 {
-      self.province_data_map.remove(&which);
-      self.remove_related_connections(which);
+    if erased {
+      self.erase_province_data(which);
     };
 
     extents
@@ -442,31 +447,24 @@ impl Map {
     const CARDINAL: [Vector2<i32>; 4] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
     let mut extents = Extents::new_point(pos);
 
-    let entry = self.province_data_map.entry(color).or_default();
-    Arc::make_mut(entry).pixel_count += 1;
-
-    self.put_pixel_raw(pos, color);
-
-    let previous_province = self.get_province_mut(which);
-    previous_province.pixel_count -= 1;
-
-    if previous_province.pixel_count == 0 {
-      return (extents, false);
+    if let Some(_) = self.put_pixel_raw(pos, color) {
+      return (extents, true);
     };
 
-    self.put_pixel_raw(pos, color);
     let [width, height] = self.dimensions();
     for &diff in CARDINAL.iter() {
       let x = pos[0].wrapping_add(diff[0] as u32);
       let y = pos[1].wrapping_add(diff[1] as u32);
       if x < width && y < height && self.get_color_at([x, y]) == which {
-        let (ext, cont) = self.flood_fill_raw([x, y], which, color);
+        let (ext, erased) = self.flood_fill_raw([x, y], which, color);
         extents = extents.join(ext);
-        if !cont { return (extents, false) };
+        if erased {
+          return (extents, true)
+        };
       };
     };
 
-    (extents, true)
+    (extents, false)
   }
 
   pub fn get_color_extents(&self, which: Color) -> Extents {

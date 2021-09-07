@@ -102,11 +102,20 @@ impl Canvas {
         ellipse.draw_from_to([r, r], [-r, -r], &Default::default(), transform, gl);
       },
       (ViewMode::Color, ToolMode::Lasso(lasso), cursor_pos) => {
-        let points = lasso.iter()
+        let can_finish = cursor_pos
+          .map(|cursor_pos| lasso.can_finish(&self.camera, cursor_pos))
+          .unwrap_or(false);
+        let points = lasso.0.iter()
           .map(|&pos| self.camera.compute_position(pos))
+          .collect::<Vec<Vector2<f64>>>();
+        if can_finish {
+          graphics::polygon(colors::WHITE_TT, &points, ctx.transform, gl);
+        };
+
+        let lines = points.into_iter()
           .chain(cursor_pos.into_iter())
-          .tuple_windows();
-        for (pos1, pos2) in points {
+          .tuple_windows::<(_, _)>();
+        for (pos1, pos2) in lines {
           graphics::line_from_to(color, 0.5, pos1, pos2, ctx.transform, gl);
         };
       },
@@ -295,10 +304,7 @@ impl Canvas {
       match self.tool.mode {
         ToolMode::PaintArea => self.tool_paint_brush(cursor_pos),
         ToolMode::PaintBucket => self.tool_paint_bucket(cursor_pos),
-        ToolMode::Lasso(_) => {
-          let point = self.camera.relative_position(cursor_pos);
-          self.tool_lasso_add_point(point);
-        }
+        ToolMode::Lasso(_) => self.tool_lasso_add_point(cursor_pos)
       };
     } else {
       self.tool_paint_brush(cursor_pos);
@@ -314,32 +320,27 @@ impl Canvas {
 
   pub fn cancel_tool(&mut self) {
     if let ToolMode::Lasso(lasso) = &mut self.tool.mode {
-      lasso.clear();
+      lasso.drain();
     };
   }
 
   pub fn finish_tool(&mut self) {
     if let ToolMode::Lasso(lasso) = &mut self.tool.mode {
-      let lasso = lasso.drain(..).collect();
+      let lasso = lasso.drain();
       self.tool_lasso_finish(lasso);
     };
   }
 
-  fn tool_lasso_add_point(&mut self, point: Vector2<f64>) {
-    let lasso = self.tool.mode.unwrap_lasso();
-    // If user attempts to place a point next to the beginning node,
-    // or next to the node they just placed (hacky double click detection)
-    // then the lasso will be finished
-    let finish = Iterator::chain(lasso.first().iter(), lasso.last().iter())
-      .any(|&&p| f64::hypot(p[0] - point[0], p[1] - point[1]) < 2.0);
-    if finish {
-      if lasso.len() > 2 {
-        let lasso = lasso.drain(..).collect();
+  fn tool_lasso_add_point(&mut self, cursor_pos: Vector2<f64>) {
+    if let ToolMode::Lasso(lasso) = &mut self.tool.mode {
+      if lasso.can_finish(&self.camera, cursor_pos) {
+        let lasso = lasso.drain();
         self.tool_lasso_finish(lasso);
+      } else {
+        let point = self.camera.relative_position(cursor_pos);
+        lasso.push(point);
       };
-    } else {
-      lasso.push(point);
-    }
+    };
   }
 
   fn tool_lasso_finish(&mut self, lasso: Vec<Vector2<f64>>) {
@@ -395,6 +396,14 @@ impl Canvas {
           self.refresh_selective(extents);
         };
       };
+    };
+  }
+
+  pub fn validate_pixel_counts(&self, alerts: &mut Alerts) {
+    if self.bundle.map.validate_pixel_counts() {
+      alerts.push(Ok("Validation successful"));
+    } else {
+      alerts.push(Err("Validation failed"));
     };
   }
 
@@ -515,12 +524,34 @@ impl Default for ToolSettings {
 pub enum ToolMode {
   PaintArea,
   PaintBucket,
-  Lasso(Vec<Vector2<f64>>)
+  Lasso(Lasso)
 }
 
 impl ToolMode {
-  fn unwrap_lasso(&mut self) -> &mut Vec<Vector2<f64>> {
-    if let ToolMode::Lasso(lasso) = self { lasso } else { panic!() }
+  pub fn new_lasso() -> Self {
+    ToolMode::Lasso(Lasso(Vec::new()))
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct Lasso(pub Vec<Vector2<f64>>);
+
+impl Lasso {
+  fn can_finish(&self, camera: &Camera, cursor_pos: Vector2<f64>) -> bool {
+    if let &[point, _, _, ..] = self.0.as_slice() {
+      let point = camera.compute_position(point);
+      vecmath::vec2_len(vecmath::vec2_sub(point, cursor_pos)) < 5.0
+    } else {
+      false
+    }
+  }
+
+  fn drain(&mut self) -> Vec<Vector2<f64>> {
+    std::mem::replace(&mut self.0, Vec::new())
+  }
+
+  fn push(&mut self, point: Vector2<f64>) {
+    self.0.push(point);
   }
 }
 

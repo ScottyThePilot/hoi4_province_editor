@@ -105,15 +105,20 @@ impl Canvas {
         let can_finish = cursor_pos
           .map(|cursor_pos| lasso.can_finish(&self.camera, cursor_pos))
           .unwrap_or(false);
-        let points = lasso.0.iter()
-          .map(|&pos| self.camera.compute_position(pos))
+        let points = lasso.iter()
+          .map(|pos| self.camera.compute_position(pos))
           .collect::<Vec<Vector2<f64>>>();
-        if can_finish {
-          graphics::polygon(colors::WHITE_TT, &points, ctx.transform, gl);
+        let first_point = points.first().cloned();
+        let last_point = if can_finish { first_point } else { cursor_pos };
+
+        if let (true, Some(first_point)) = (can_finish, first_point) {
+          let ellipse = Ellipse::new(color).resolution(6);
+          let transform = ctx.transform.trans_pos(first_point);
+          ellipse.draw_from_to([5.0, 5.0], [-5.0, -5.0], &Default::default(), transform, gl);
         };
 
         let lines = points.into_iter()
-          .chain(cursor_pos.into_iter())
+          .chain(last_point.into_iter())
           .tuple_windows::<(_, _)>();
         for (pos1, pos2) in lines {
           graphics::line_from_to(color, 0.5, pos1, pos2, ctx.transform, gl);
@@ -266,6 +271,7 @@ impl Canvas {
       let province_data = self.bundle.map.get_province_at(pos);
       match self.view_mode {
         ViewMode::Color => {
+          self.tool_paint_end();
           self.tool.color_brush = Some(color);
           alerts.push(Ok(format!("Picked color {}", stringify_color(color))));
         },
@@ -552,6 +558,10 @@ impl Lasso {
 
   fn push(&mut self, point: Vector2<f64>) {
     self.0.push(point);
+  }
+
+  fn iter(&self) -> std::iter::Copied<std::slice::Iter<Vector2<f64>>> {
+    self.0.iter().copied()
   }
 }
 

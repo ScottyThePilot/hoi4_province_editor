@@ -59,6 +59,7 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - Auto-generating which provinces are coastal (via `Shift-C`)
 - Exporting terrain or land type view modes for MapGen/ProvGen
 - Preserving province IDs (in order to not break maps)
+- Viewing province ID numbers on the map
 
 ## Planned Features
 - Support for creating/editing adjacencies

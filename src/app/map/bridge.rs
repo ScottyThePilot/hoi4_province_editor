@@ -154,18 +154,18 @@ fn construct_map_data(
   // Loop through every pixel in the color buffer, ensuring that the resulting province data map
   // will be valid and will have no provinces mapping to colors not on the color buffer
   let mut province_data_map = FxHashMap::default();
-  for &Rgb(pixel) in color_buffer.pixels() {
+  for (x, y, &Rgb(pixel)) in color_buffer.enumerate_pixels() {
     // If this color isn't in the new province data map, but it is in the definition table,
     // take it from the former and put it in the latter
     match province_data_map.entry(pixel) {
       Entry::Vacant(entry) => {
         let mut province_data = definition_map.remove(&pixel).unwrap_or_default();
-        province_data.pixel_count += 1;
+        province_data.add_pixel([x, y]);
         entry.insert(Arc::new(province_data));
       },
       Entry::Occupied(entry) => {
         let entry = Arc::make_mut(entry.into_mut());
-        entry.pixel_count += 1;
+        entry.add_pixel([x, y]);
       }
     };
   };

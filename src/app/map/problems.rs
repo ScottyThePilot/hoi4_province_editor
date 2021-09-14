@@ -1,4 +1,3 @@
-use fxhash::FxHashMap;
 use graphics::context::Context;
 use graphics::rectangle::Rectangle;
 use graphics::ellipse::Ellipse;
@@ -6,8 +5,8 @@ use opengl_graphics::GlGraphics;
 use vecmath::{Matrix2x3, Vector2};
 
 use crate::app::colors;
-use super::{Bundle, Map, Extents};
-use crate::util::XYIter;
+use super::{Bundle, Color, Map, Extents};
+use crate::util::{fx_hash_map_with_capacity, XYIter};
 
 use std::collections::hash_map::Entry;
 use std::fmt;
@@ -89,48 +88,34 @@ fn draw_box(bounds: [Vector2<f64>; 2], transform: Matrix2x3<f64>, display_matrix
 
 
 pub fn analyze(bundle: &Bundle) -> Vec<Problem> {
-  struct ProblemData {
-    extents: Extents,
-    position_sum: Vector2<f64>
-  }
-
   let [width, height] = bundle.map.dimensions();
   let mut problems = Vec::new();
-  let mut problem_data_map = FxHashMap::default();
+  let mut province_extents = fx_hash_map_with_capacity::<Color, Extents>(bundle.map.provinces_count());
 
   for pos in XYIter::new(0..width, 0..height) {
-    if pos[0] != width - 1 && pos[1] != height - 1 {
-      if is_crossing_at(&bundle.map, pos) {
-        let pos = [pos[0] + 1, pos[1] + 1];
-        problems.push(Problem::InvalidXCrossing(pos));
-      };
+    if pos[1] != height - 1 && is_crossing_at(&bundle.map, pos) {
+      let pos = [(pos[0] + 1) % width, pos[1] + 1];
+      problems.push(Problem::InvalidXCrossing(pos));
     };
 
-    match problem_data_map.entry(bundle.map.get_color_at(pos)) {
+    match province_extents.entry(bundle.map.get_color_at(pos)) {
       Entry::Vacant(entry) => {
-        entry.insert(ProblemData {
-          extents: Extents::new_point(pos),
-          position_sum: [pos[0] as f64, pos[1] as f64]
-        });
+        entry.insert(Extents::new_point(pos));
       },
       Entry::Occupied(entry) => {
         let entry = entry.into_mut();
-        entry.extents = entry.extents.join_point(pos);
-        entry.position_sum[0] += pos[0] as f64;
-        entry.position_sum[1] += pos[1] as f64;
+        *entry = entry.join_point(pos);
       }
     };
   };
 
-  for (color, problem_data) in problem_data_map {
-    let pixel_count = bundle.map.get_province(color).pixel_count;
-    if pixel_count <= 8 {
-      let pos = problem_data.position_sum;
-      let pos = [pos[0] / pixel_count as f64, pos[1] / pixel_count as f64];
-      problems.push(Problem::TooFewPixels(pixel_count, pos));
+  for (color, extents) in province_extents {
+    let province_data = bundle.map.get_province(color);
+    if province_data.pixel_count <= 8 {
+      let center_of_mass = province_data.center_of_mass();
+      problems.push(Problem::TooFewPixels(province_data.pixel_count, center_of_mass));
     };
 
-    let extents = problem_data.extents;
     let (_, [province_width, province_height]) = extents.to_offset_size();
     if province_width > width / 8 || province_height > height / 8 {
       problems.push(Problem::TooLargeBox(extents));
@@ -148,12 +133,13 @@ pub fn analyze(bundle: &Bundle) -> Vec<Problem> {
   problems
 }
 
-fn is_crossing_at(map: &Map, [x, y]: Vector2<u32>) -> bool {
+fn is_crossing_at(map: &Map, [x0, y0]: Vector2<u32>) -> bool {
   #![allow(clippy::many_single_char_names)]
-  let a = map.get_color_at([x, y]);
-  let b = map.get_color_at([x + 1, y]);
-  let c = map.get_color_at([x, y + 1]);
-  let d = map.get_color_at([x + 1, y + 1]);
+  let [x1, y1] = [if x0 + 1 == map.color_buffer.width() { 0 } else { x0 + 1 }, y0 + 1];
+  let a = map.get_color_at([x0, y0]);
+  let b = map.get_color_at([x1, y0]);
+  let c = map.get_color_at([x0, y1]);
+  let d = map.get_color_at([x1, y1]);
   a != b && c != d && b != d && a != c && a != d && b != c
 }
 

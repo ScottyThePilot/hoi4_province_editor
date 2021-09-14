@@ -26,6 +26,7 @@ use std::env;
 pub mod colors {
   use graphics::types::Color;
 
+  pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
   pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
   pub const WHITE_T: Color = [1.0, 1.0, 1.0, 0.25];
   pub const WHITE_TT: Color = [1.0, 1.0, 1.0, 0.015625];
@@ -71,13 +72,12 @@ impl EventHandler for App {
   }
 
   fn on_init(&mut self) {
-    #[cfg(debug_assertions)]
-    self.raw_open_map_at("./test_map.zip");
-
-    #[cfg(not(debug_assertions))]
     if let Some(path) = std::env::args().nth(1) {
       self.raw_open_map_at(path);
     } else {
+      #[cfg(debug_assertions)]
+      self.raw_open_map_at("./test_map.zip");
+      #[cfg(not(debug_assertions))]
       self.alerts.push(Ok("Drag a file, archive, or folder onto the application to load a map"));
     };
   }
@@ -90,7 +90,8 @@ impl EventHandler for App {
     };
 
     self.alerts.draw(ctx, &mut self.glyph_cache, gl);
-    self.interface.draw(ctx, cursor_pos, &mut self.glyph_cache, gl);
+    let ictx = self.get_interface_draw_context();
+    self.interface.draw(ctx, ictx, cursor_pos, &mut self.glyph_cache, gl);
   }
 
   fn on_update(&mut self, dt: f32) {
@@ -188,6 +189,23 @@ impl EventHandler for App {
 }
 
 impl App {
+  fn get_interface_draw_context(&self) -> InterfaceDrawContext {
+    match &self.canvas {
+      Some(canvas) => InterfaceDrawContext {
+        view_mode: Some(canvas.view_mode()),
+        selected_tool: Some(match &canvas.tool.mode {
+          ToolMode::PaintArea => 0,
+          ToolMode::PaintBucket => 1,
+          ToolMode::Lasso(_) => 2
+        })
+      },
+      None => InterfaceDrawContext {
+        view_mode: None,
+        selected_tool: None
+      }
+    }
+  }
+
   fn is_canvas_modified(&self) -> bool {
     if let Some(canvas) = &self.canvas {
       canvas.modified
@@ -218,6 +236,7 @@ impl App {
       (Some(canvas), ToolbarViewMode4) => canvas.set_view_mode(&mut self.alerts, ViewMode::Continent),
       (Some(canvas), ToolbarViewMode5) => canvas.set_view_mode(&mut self.alerts, ViewMode::Coastal),
       (Some(canvas), ToolbarViewMode6) => canvas.set_view_mode(&mut self.alerts, ViewMode::Adjacencies),
+      (Some(canvas), ToolbarViewToggleIds) => canvas.toggle_province_ids(),
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
       (Some(canvas), SidebarToolPaintArea) => canvas.set_tool_mode(ToolMode::PaintArea),
       (Some(canvas), SidebarToolPaintBucket) => canvas.set_tool_mode(ToolMode::PaintBucket),
@@ -346,6 +365,12 @@ impl fmt::Debug for App {
       .field("painting", &self.painting)
       .finish()
   }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InterfaceDrawContext {
+  pub view_mode: Option<ViewMode>,
+  pub selected_tool: Option<usize>
 }
 
 fn file_dialog_save_bmp(filename: &str) -> Option<PathBuf> {

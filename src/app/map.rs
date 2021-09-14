@@ -279,10 +279,11 @@ impl Map {
     let Rgb(previous_color) = std::mem::replace(pixel, Rgb(color));
 
     let entry = self.province_data_map.entry(color).or_default();
-    Arc::make_mut(entry).pixel_count += 1;
+    let entry = Arc::make_mut(entry);
+    entry.add_pixel(pos);
 
     let previous_province = self.get_province_mut(previous_color);
-    previous_province.pixel_count -= 1;
+    previous_province.sub_pixel(pos);
 
     if previous_province.pixel_count == 0 {
       Some(previous_color)
@@ -356,26 +357,58 @@ impl Map {
   /// Returns a hashset of uords describing which provinces are touching each other
   fn calculate_neighbors(&self) -> FxHashSet<UOrd<Color>> {
     let mut neighbors = FxHashSet::default();
-    let [width, height] = self.dimensions();
-
-    let mut check = |pos, pos_xm, pos_ym| {
-      let color = self.get_color_at(pos);
-      let color_xm = self.get_color_at(pos_xm);
-      let color_ym = self.get_color_at(pos_ym);
-      if color != color_xm { neighbors.insert(UOrd::new(color, color_xm)); };
-      if color != color_ym { neighbors.insert(UOrd::new(color, color_ym)); };
-    };
-
-    // Loop through the image, comparing pixels to each other to find adjacent sea and land pixels
-    for pos in XYIter::new(0..width-1, 0..height-1) {
-      check(pos, [pos[0] + 1, pos[1]], [pos[0], pos[1] + 1]);
-    };
-
-    // The above loop misses two comparisons with the bottom-right-most pixel, this calculates it manually
-    let pos = [width - 1, height - 1];
-    check(pos, [pos[0] - 1, pos[1]], [pos[0], pos[1] - 1]);
+    self.inspect_pixel_pairs(|pos_a, pos_b| {
+      let color_a = self.get_color_at(pos_a);
+      let color_b = self.get_color_at(pos_b);
+      if color_a != color_b {
+        neighbors.insert(UOrd::new(color_a, color_b));
+      };
+    });
 
     neighbors
+  }
+
+  /// Returns a hashset of uords describing lines that would draw borders between each pixel of different color
+  pub fn calculate_boundary_lines(&self) -> FxHashSet<UOrd<Vector2<u32>>> {
+    let mut boundaries = FxHashSet::default();
+    self.inspect_pixel_pairs(|pos_a, pos_b| {
+      let color_a = self.get_color_at(pos_a);
+      let color_b = self.get_color_at(pos_b);
+      if color_a != color_b {
+        let boundary = match (pos_a, pos_b) {
+          ([xa, ya], [xb, yb]) if xa == xb => {
+            let y = ya.max(yb);
+            UOrd::new([xa, y], [xa + 1, y])
+          },
+          ([xa, ya], [xb, yb]) if ya == yb => {
+            let x = xa.max(xb);
+            UOrd::new([x, ya], [x, ya + 1])
+          },
+          _ => unreachable!()
+        };
+
+        boundaries.insert(boundary);
+      };
+    });
+
+    boundaries
+  }
+
+  /// Inspects every pair of pixels adjacent to each other, either vertically or horizontally
+  fn inspect_pixel_pairs<F>(&self, mut f: F)
+  where F: FnMut(Vector2<u32>, Vector2<u32>) {
+    let [width, height] = self.dimensions();
+    for pos in XYIter::new(0..width, 0..height) {
+      if pos[0] + 1 < width {
+        let other = [pos[0] + 1, pos[1]];
+        f(pos, other);
+      };
+
+      if pos[1] + 1 < height {
+        let other = [pos[0], pos[1] + 1];
+        f(pos, other);
+      };
+    };
   }
 
   /// If the map has any provinces where the type is `Unknown`
@@ -502,6 +535,10 @@ impl Map {
   pub fn get_connection(&self, rel: UOrd<Color>) -> &ConnectionData {
     self.connection_data_map.get(&rel).expect("connection not found with rel")
   }
+
+  pub fn iter_province_data(&self) -> impl Iterator<Item = &ProvinceData> {
+    self.province_data_map.values().map(|province_data| &**province_data)
+  }
 }
 
 /// Represents a simple bounding box
@@ -585,10 +622,29 @@ pub struct ProvinceData {
   pub terrain: String,
   pub continent: u16,
   pub coastal: Option<bool>,
-  pub pixel_count: u64
+  pub pixel_count: u64,
+  pub pixel_sum: Vector2<u64>
 }
 
 impl ProvinceData {
+  pub fn center_of_mass(&self) -> Vector2<f64> {
+    let x = self.pixel_sum[0] as f64 / self.pixel_count as f64;
+    let y = self.pixel_sum[1] as f64 / self.pixel_count as f64;
+    [x, y]
+  }
+
+  fn add_pixel(&mut self, pos: Vector2<u32>) {
+    self.pixel_count += 1;
+    self.pixel_sum[0] += pos[0] as u64;
+    self.pixel_sum[1] += pos[1] as u64;
+  }
+
+  fn sub_pixel(&mut self, pos: Vector2<u32>) {
+    self.pixel_count -= 1;
+    self.pixel_sum[0] -= pos[0] as u64;
+    self.pixel_sum[1] -= pos[1] as u64;
+  }
+
   pub fn from_definition_config(definition: Definition, config: &Config) -> Self {
     ProvinceData {
       preserved_id: config.preserve_ids.then(|| definition.id),
@@ -596,7 +652,8 @@ impl ProvinceData {
       terrain: definition.terrain,
       continent: definition.continent,
       coastal: Some(definition.coastal),
-      pixel_count: 0
+      pixel_count: 0,
+      pixel_sum: [0, 0]
     }
   }
 
@@ -647,7 +704,8 @@ impl Default for ProvinceData {
       terrain: "unknown".to_owned(),
       continent: 0,
       coastal: None,
-      pixel_count: 0
+      pixel_count: 0,
+      pixel_sum: [0, 0]
     }
   }
 }

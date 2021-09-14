@@ -31,6 +31,7 @@ pub struct Canvas {
   problems: Vec<Problem>,
   unknown_terrains: Option<FxHashSet<String>>,
   location: Location,
+  show_province_ids: bool,
   pub tool: ToolSettings,
   pub modified: bool,
   pub camera: Camera
@@ -45,6 +46,7 @@ impl Canvas {
     // The test map is very small with large ocean provinces, the 'too large box' errors go nuts
     let problems = if cfg!(debug_assertions) { Vec::new() } else { bundle.generate_problems() };
     let unknown_terrains = bundle.search_unknown_terrains();
+    let show_province_ids = bundle.config.preserve_ids;
     let camera = Camera::new(&texture);
 
     Ok(Canvas {
@@ -56,6 +58,7 @@ impl Canvas {
       problems,
       unknown_terrains,
       location,
+      show_province_ids,
       modified: false,
       camera
     })
@@ -87,6 +90,32 @@ impl Canvas {
 
     let transform = ctx.transform.append_transform(self.camera.display_matrix);
     graphics::image(&self.texture, transform, gl);
+
+    if self.view_mode == ViewMode::Color && self.camera.scale_factor() > 1.0 && self.show_province_ids {
+      for province_data in self.bundle.map.iter_province_data() {
+        let preserved_id = province_data.preserved_id
+          .map_or_else(|| "X".to_owned(), |id| id.to_string());
+        let color = match province_data.kind {
+          ProvinceKind::Land | ProvinceKind::Lake => colors::BLACK,
+          ProvinceKind::Sea | ProvinceKind::Unknown => colors::WHITE
+        };
+
+        let preserved_id = preserved_id.to_string();
+        let center_of_mass = self.camera.compute_position(province_data.center_of_mass());
+        let transform = ctx.transform.trans_pos(center_of_mass);
+        graphics::text(color, FONT_SIZE, &preserved_id, glyph_cache, transform, gl)
+          .expect("unable to draw text");
+      };
+    };
+
+    //if self.camera.scale_factor() > 1.0 {
+    //  for &boundary in &self.boundary_lines {
+    //    let (b1, b2) = boundary.into_tuple();
+    //    let b1 = self.camera.compute_position([b1[0] as f64, b1[1] as f64]);
+    //    let b2 = self.camera.compute_position([b2[0] as f64, b2[1] as f64]);
+    //    graphics::line_from_to(colors::BLACK, 1.0, b1, b2, ctx.transform, gl);
+    //  };
+    //};
 
     for problem in self.problems.iter() {
       problem.draw(ctx, self.camera.display_matrix, gl);
@@ -132,6 +161,10 @@ impl Canvas {
     let transform = ctx.transform.trans_pos(pos);
     graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
       .expect("unable to draw text");
+  }
+
+  pub fn toggle_province_ids(&mut self) {
+    self.show_province_ids = !self.show_province_ids;
   }
 
   pub fn reload_config(&mut self, alerts: &mut Alerts) {

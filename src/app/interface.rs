@@ -9,7 +9,10 @@ use opengl_graphics::{Texture, TextureSettings, GlGraphics};
 use rusttype::{Font, Scale};
 use vecmath::Vector2;
 
-use super::{colors, FontGlyphCache, FONT_SIZE};
+use super::canvas::ViewMode;
+use super::colors;
+use super::FONT_SIZE;
+use super::{FontGlyphCache, InterfaceDrawContext};
 
 use std::sync::Arc;
 use std::fmt;
@@ -33,8 +36,7 @@ pub struct Interface {
   toolbar_buttons: Vec<ToolbarButtonElement>,
   toolbar_plate: PlateComponent,
   sidebar_buttons: Vec<ButtonElement>,
-  sidebar_plate: PlateComponent,
-  sidebar_selected: usize
+  sidebar_plate: PlateComponent
 }
 
 impl Interface {
@@ -43,9 +45,8 @@ impl Interface {
   /// If a button was not clicked, a boolean is returned indicating whether or not
   /// the input just processed should be deferred to something below the interface.
   pub fn on_mouse_click(&mut self, pos: Vector2<f64>) -> Result<ButtonId, bool> {
-    for (i, sidebar_button) in self.sidebar_buttons.iter().enumerate() {
+    for sidebar_button in &self.sidebar_buttons {
       if sidebar_button.base.test(pos) {
-        self.sidebar_selected = i;
         return Ok(sidebar_button.id);
       };
     };
@@ -88,11 +89,28 @@ impl Interface {
     };
   }
 
-  pub fn draw(&self, ctx: Context, pos: Option<Vector2<f64>>, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
+  pub fn draw(
+    &self,
+    ctx: Context,
+    ictx: InterfaceDrawContext,
+    pos: Option<Vector2<f64>>,
+    glyph_cache: &mut FontGlyphCache,
+    gl: &mut GlGraphics
+  ) {
     let sidebar_colors = self.sidebar_buttons[0].base.colors();
     self.sidebar_plate.draw(ctx, false, sidebar_colors, gl);
     for (i, sidebar_button) in self.sidebar_buttons.iter().enumerate() {
-      let hover = i == self.sidebar_selected || sidebar_button.base.test_maybe(pos);
+      let selected_tool = match (ictx.view_mode, i) {
+        // In color view mode, all tools are shown
+        (Some(ViewMode::Color), _) => ictx.selected_tool,
+        // In adjacencies tool mode, no tools are shown
+        (Some(ViewMode::Adjacencies), _) => continue,
+        // In other tool modes, only show the area tool
+        (Some(_), 0) => Some(0),
+        (_, _) => continue
+      };
+
+      let hover = Some(i) == selected_tool || sidebar_button.base.test_maybe(pos);
       sidebar_button.base.draw(ctx, hover, glyph_cache, gl);
     };
 
@@ -363,6 +381,7 @@ pub enum ButtonId {
   ToolbarViewMode4,
   ToolbarViewMode5,
   ToolbarViewMode6,
+  ToolbarViewToggleIds,
   #[cfg(debug_assertions)]
   ToolbarDebugValidatePixelCounts,
   ToolbarViewResetZoom,
@@ -401,6 +420,7 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Continents Map View Mode", "4", ButtonId::ToolbarViewMode4),
     ("Coastal Provinces Map View Mode", "5", ButtonId::ToolbarViewMode5),
     ("Adjacencies Map View Mode", "6", ButtonId::ToolbarViewMode6),
+    ("Toggle Province IDs", "", ButtonId::ToolbarViewToggleIds),
     ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom)
   ]),
   #[cfg(debug_assertions)]
@@ -470,8 +490,7 @@ pub fn construct_interface(font: &Font<'static>) -> Interface {
     sidebar_buttons: buttons,
     toolbar_buttons,
     toolbar_plate,
-    sidebar_plate,
-    sidebar_selected: 0
+    sidebar_plate
   }
 }
 

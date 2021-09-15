@@ -839,7 +839,7 @@ fn p4(color: Color) -> [u8; 4] {
 fn random_color<R: Rng>(rng: &mut R, kind: ProvinceKind) -> Color {
   use crate::util::hsl::hsl_to_rgb;
 
-  let lightness: f64 = match kind {
+  let lightness: f32 = match kind {
     ProvinceKind::Unknown => return [rng.gen::<u8>(); 3],
     ProvinceKind::Land => rng.gen_range(0.5..1.0),
     ProvinceKind::Lake => rng.gen_range(0.2..0.5),

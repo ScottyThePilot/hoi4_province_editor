@@ -1,10 +1,11 @@
 //! Utilities for parsing text-based game data files
 mod adjacency;
+mod csv;
 mod definition;
 
 use thiserror::Error;
 
-pub use crate::util::csv::ParseCsv;
+pub use self::csv::{ParseCsv, CsvError};
 pub use self::adjacency::*;
 pub use self::definition::*;
 

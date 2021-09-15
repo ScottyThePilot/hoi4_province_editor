@@ -101,11 +101,9 @@ impl Interface {
     self.sidebar_plate.draw(ctx, false, sidebar_colors, gl);
     for (i, sidebar_button) in self.sidebar_buttons.iter().enumerate() {
       let selected_tool = match (ictx.view_mode, i) {
-        // In color view mode, all tools are shown
         (Some(ViewMode::Color), _) => ictx.selected_tool,
-        // In adjacencies tool mode, no tools are shown
+        (Some(ViewMode::Coastal), _) => continue,
         (Some(ViewMode::Adjacencies), _) => continue,
-        // In other tool modes, only show the area tool
         (Some(_), 0) => Some(0),
         (_, _) => continue
       };

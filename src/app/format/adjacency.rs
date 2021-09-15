@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-use crate::util::csv::ParseCsv;
+use super::csv::ParseCsv;
 use super::ParseError;
 
 use std::str::FromStr;
@@ -142,7 +142,7 @@ impl From<AdjacencyKind> for &'static str {
 
 impl fmt::Display for AdjacencyKind {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "{}", self.to_str())
+    f.write_str(self.to_str())
   }
 }
 

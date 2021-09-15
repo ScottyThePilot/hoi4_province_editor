@@ -1,8 +1,7 @@
 use thiserror::Error;
 
-use crate::app::format::ParseError;
+use crate::app::format::{CsvError, ParseError};
 use crate::config::LoadConfigError;
-use crate::util::csv::CsvError;
 
 #[derive(Debug, Error)]
 pub enum Error {

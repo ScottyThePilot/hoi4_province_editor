@@ -178,7 +178,9 @@ fn construct_map_data(
   let mut connection_data_map = fx_hash_map_with_capacity(adjacencies_table.len());
   for a in adjacencies_table.into_iter() {
     if let Some(rel) = get_color_index(&color_index, [a.from_id, a.to_id]) {
-      connection_data_map.insert(rel, ConnectionData::from_adjacency(a));
+      if let Some(connection_data) = ConnectionData::from_adjacency(a) {
+        connection_data_map.insert(rel, connection_data);
+      };
     };
   };
 

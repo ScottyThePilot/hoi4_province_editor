@@ -400,7 +400,9 @@ impl From<Extents> for Step {
 
 fn pixel_lasso(map: &Map, lasso: Vec<Vector2<f64>>, color: Color) -> (Extents, Vec<Vector2<u32>>) {
   let mut pixels = Vec::new();
-  let extents = Extents::from_points(&lasso);
+  let mut extents = Extents::from_points(&lasso);
+  extents.upper[0] = extents.upper[0].min(map.color_buffer.width() - 1);
+  extents.upper[1] = extents.upper[1].min(map.color_buffer.height() - 1);
   let lasso = Polygon::new(LineString::from(lasso), Vec::new());
   for [x, y] in XYIter::from_extents(extents) {
     let coord = Coordinate::from([x as f64 + 0.5, y as f64 + 0.5]);

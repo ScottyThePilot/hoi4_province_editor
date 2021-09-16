@@ -92,10 +92,15 @@ impl fmt::Display for Adjacency {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(into = "&str", try_from = "String")]
 pub enum AdjacencyKind {
+  /// An adjacency between two sea provinces that passes through land (canal)
   Land = 0,
+  /// Unknown
   River = 1,
+  /// Unknown
   LargeRiver = 2,
+  /// An adjacency between two land provinces that passes through sea (strait)
   Sea = 3,
+  /// An adjacency that prevents passage
   Impassable = 4
 }
 

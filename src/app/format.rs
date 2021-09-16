@@ -14,7 +14,7 @@ use std::str::ParseBoolError;
 
 #[derive(Error, Debug, Clone, Eq, PartialEq)]
 pub enum ParseError {
-  #[error("expected one of \"river\", \"large_river\", \"sea\", \"impassible\", or an empty string")]
+  #[error("expected one of \"river\", \"large_river\", \"sea\", \"impassable\", or an empty string")]
   InvalidAdjacencyKind,
   #[error("expected one of \"land\", \"sea\", or \"lake\"")]
   InvalidDefinitionKind,

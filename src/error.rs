@@ -11,9 +11,9 @@ pub enum Error {
   Zip(#[from] zip::result::ZipError),
   #[error(transparent)]
   Image(#[from] image::ImageError),
-  #[error("CSV: {0}")]
+  #[error("csv parse error: {0}")]
   Csv(#[from] CsvError<ParseError>),
-  #[error("Config: {0}")]
+  #[error("config error: {0}")]
   ConfigError(#[from] LoadConfigError),
   #[error("{0}")]
   Custom(String)

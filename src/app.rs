@@ -34,6 +34,10 @@ pub mod colors {
   pub const NEUTRAL: Color = [0.25, 0.25, 0.25, 1.0];
   pub const OVERLAY_T: Color = [0.0, 0.0, 0.0, 0.5];
 
+  pub const ADJ_LAND: Color = [0.2, 0.6, 1.0/3.0, 1.0];
+  pub const ADJ_SEA: Color = [0.2, 1.0/3.0, 0.6, 1.0];
+  pub const ADJ_IMPASSABLE: Color = [0.0, 0.0, 0.0, 1.0];
+
   pub const BUTTON: Color = [0.1875, 0.1875, 0.1875, 1.0];
   pub const BUTTON_HOVER: Color = [0.3750, 0.3750, 0.3750, 1.0];
 

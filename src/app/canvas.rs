@@ -92,7 +92,7 @@ impl Canvas {
     graphics::image(&self.texture, transform, gl);
 
     if self.view_mode == ViewMode::Color && self.camera.scale_factor() > 1.0 && self.show_province_ids {
-      for province_data in self.bundle.map.iter_province_data() {
+      for (_color, province_data) in self.bundle.map.iter_province_data() {
         let preserved_id = province_data.preserved_id
           .map_or_else(|| "X".to_owned(), |id| id.to_string());
         let color = match province_data.kind {
@@ -105,6 +105,22 @@ impl Canvas {
         let transform = ctx.transform.trans_pos(center_of_mass);
         graphics::text(color, FONT_SIZE, &preserved_id, glyph_cache, transform, gl)
           .expect("unable to draw text");
+      };
+    };
+
+    if self.view_mode == ViewMode::Adjacencies {
+      for (rel, connection_data) in self.bundle.map.iter_connection_data() {
+        let color = match connection_data.kind {
+          ConnectionKind::Strait => colors::ADJ_LAND,
+          ConnectionKind::Canal => colors::ADJ_SEA,
+          ConnectionKind::Impassable => colors::ADJ_IMPASSABLE
+        };
+
+        let (center1, center2) = self.bundle.map.get_connection_positions(rel);
+        let center1 = self.camera.compute_position(center1);
+        let center2 = self.camera.compute_position(center2);
+
+        graphics::line_from_to(color, 2.0, center1, center2, ctx.transform, gl);
       };
     };
 
@@ -602,6 +618,12 @@ impl Default for ToolMode {
   fn default() -> ToolMode {
     ToolMode::PaintArea
   }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BrushMask {
+  LandLakes,
+  Sea
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

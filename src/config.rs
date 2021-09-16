@@ -1,6 +1,6 @@
 use fxhash::FxHashMap;
 use itertools::Itertools;
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::app::map::Color;
@@ -12,7 +12,7 @@ use std::fs;
 
 const DEFAULT_CONFIG: &[u8] = include_bytes!("../assets/hoi4pe_config_default.toml");
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
   #[serde(rename = "max-undo-states", alias = "max_undo_states")]
@@ -125,7 +125,7 @@ impl Default for Config {
   }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Deserialize)]
 pub struct Terrain {
   #[serde(alias = "colour")]
   pub color: Color,
@@ -138,9 +138,7 @@ pub enum LoadConfigError {
   #[error(transparent)]
   IoError(#[from] std::io::Error),
   #[error(transparent)]
-  FormatError(#[from] toml::de::Error),
-  #[error("{0}")]
-  Custom(String)
+  FormatError(#[from] toml::de::Error)
 }
 
 fn default_terrains() -> FxHashMap<String, Terrain> {

@@ -536,8 +536,24 @@ impl Map {
     self.connection_data_map.get(&rel).expect("connection not found with rel")
   }
 
-  pub fn iter_province_data(&self) -> impl Iterator<Item = &ProvinceData> {
-    self.province_data_map.values().map(|province_data| &**province_data)
+  pub fn get_connection_positions(&self, rel: UOrd<Color>) -> (Vector2<f64>, Vector2<f64>) {
+    let connection_data = self.get_connection(rel);
+    if let (Some(start), Some(stop)) = (connection_data.start, connection_data.stop) {
+      ([start[0] as f64, start[1] as f64], [stop[0] as f64, stop[1] as f64])
+    } else {
+      let (start, stop) = rel.into_tuple();
+      let start = self.get_province(start).center_of_mass();
+      let stop = self.get_province(stop).center_of_mass();
+      (start, stop)
+    }
+  }
+
+  pub fn iter_province_data(&self) -> impl Iterator<Item = (Color, &ProvinceData)> {
+    self.province_data_map.iter().map(|(i, d)| (*i, &**d))
+  }
+
+  pub fn iter_connection_data(&self) -> impl Iterator<Item = (UOrd<Color>, &ConnectionData)> {
+    self.connection_data_map.iter().map(|(i, c)| (*i, c))
   }
 }
 
@@ -797,7 +813,7 @@ impl From<ProvinceKind> for &'static str {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionData {
-  pub kind: AdjacencyKind,
+  pub kind: ConnectionKind,
   pub through: Option<u32>,
   pub start: Option<[u32; 2]>,
   pub stop: Option<[u32; 2]>,
@@ -806,15 +822,15 @@ pub struct ConnectionData {
 }
 
 impl ConnectionData {
-  pub fn from_adjacency(adjacency: Adjacency) -> Self {
-    ConnectionData {
-      kind: adjacency.kind,
+  pub fn from_adjacency(adjacency: Adjacency) -> Option<Self> {
+    Some(ConnectionData {
+      kind: ConnectionKind::from_adjacency_kind(adjacency.kind)?,
       through: adjacency.through,
       start: adjacency.start,
       stop: adjacency.stop,
       rule_name: adjacency.rule_name,
       comment: adjacency.comment
-    }
+    })
   }
 
   pub fn to_adjacency(&self, rel: UOrd<u32>) -> Adjacency {
@@ -822,12 +838,39 @@ impl ConnectionData {
     Adjacency {
       from_id,
       to_id,
-      kind: self.kind,
+      kind: self.kind.into_adjacency_kind(),
       through: self.through,
       start: self.start,
       stop: self.stop,
       rule_name: self.rule_name.clone(),
       comment: self.comment.clone()
+    }
+  }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ConnectionKind {
+  Strait,
+  Canal,
+  Impassable
+}
+
+impl ConnectionKind {
+  pub fn from_adjacency_kind(kind: AdjacencyKind) -> Option<ConnectionKind> {
+    match kind {
+      AdjacencyKind::Land => Some(ConnectionKind::Canal),
+      AdjacencyKind::River => None,
+      AdjacencyKind::LargeRiver => None,
+      AdjacencyKind::Sea => Some(ConnectionKind::Strait),
+      AdjacencyKind::Impassable => Some(ConnectionKind::Impassable)
+    }
+  }
+
+  pub fn into_adjacency_kind(self) -> AdjacencyKind {
+    match self {
+      ConnectionKind::Strait => AdjacencyKind::Sea,
+      ConnectionKind::Canal => AdjacencyKind::Land,
+      ConnectionKind::Impassable => AdjacencyKind::Impassable
     }
   }
 }

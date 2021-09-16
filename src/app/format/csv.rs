@@ -8,19 +8,17 @@ use std::io;
 pub const LINE_BREAK: &str = "\r\n";
 pub const SEPARATOR: char = ';';
 
-fn split_line<E: StdError, const COLUMNS: usize>(line: &str) -> Result<[String; COLUMNS], CsvError<E>> {
+fn split_line<const COLUMNS: usize>(line: &str) -> Option<[String; COLUMNS]> {
   use std::convert::TryInto;
   let line = line.split(SEPARATOR)
     .map(str::to_owned)
+    .take(COLUMNS)
     .collect::<Vec<String>>();
-  match line.try_into() {
-    Ok(line) => Ok(line),
-    Err(_) => Err(CsvError::IncorrectColumnCount)
-  }
+  line.try_into().ok()
 }
 
 fn should_ignore_line<P: ParseCsv<COLUMNS>, const COLUMNS: usize>(s: &str, i: usize) -> bool {
-  i == 0 || s.is_empty() || Some(s) == P::HEADER_LINE || Some(s) == P::FOOTER_LINE
+  s.is_empty() || s.starts_with('#') || (i == 0 && P::HEADER_LINE.is_some()) || Some(s) == P::HEADER_LINE || Some(s) == P::FOOTER_LINE
 }
 
 pub trait ParseCsv<const COLUMNS: usize>: Sized + ToString {
@@ -38,7 +36,8 @@ pub trait ParseCsv<const COLUMNS: usize>: Sized + ToString {
       if should_ignore_line::<Self, COLUMNS>(&raw_line, i) {
         continue;
       } else {
-        let line = split_line::<Self::Error, COLUMNS>(&raw_line)?;
+        let line = split_line::<COLUMNS>(&raw_line)
+          .ok_or(CsvError::IncorrectColumnCount)?;
         let line = Self::parse_line(line)
           .map_err(|err| CsvError::ParsingFailed(raw_line, err))?;
         out.push(line);

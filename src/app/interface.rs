@@ -6,12 +6,11 @@ use image::{DynamicImage, GenericImageView, RgbaImage};
 use image::codecs::png::PngDecoder;
 use once_cell::sync::OnceCell;
 use opengl_graphics::{Texture, TextureSettings, GlGraphics};
-use rusttype::{Font, Scale};
 use vecmath::Vector2;
 
+use crate::font::{self, FONT_SIZE};
 use super::canvas::ViewMode;
 use super::colors;
-use super::FONT_SIZE;
 use super::{FontGlyphCache, InterfaceDrawContext};
 
 use std::sync::Arc;
@@ -160,27 +159,6 @@ impl ToolbarButtonElement {
 }
 
 #[derive(Debug, Clone)]
-struct Metrics {
-  width: f64,
-  ascent: f64,
-  descent: f64
-}
-
-impl Metrics {
-  pub fn from_font(font: &Font<'static>) -> Metrics {
-    let scale = (FONT_SIZE as f32 * 1.333).round();
-    let scale = Scale { x: scale, y: scale };
-    let h_metrics = font.glyph('_').scaled(scale).h_metrics();
-    let v_metrics = font.v_metrics(scale);
-    Metrics {
-      width: h_metrics.advance_width as f64,
-      ascent: v_metrics.ascent as f64,
-      descent: v_metrics.descent as f64
-    }
-  }
-}
-
-#[derive(Debug, Clone)]
 enum ButtonBase {
   BoxFitWidth {
     text: TextComponent,
@@ -201,11 +179,12 @@ enum ButtonBase {
 }
 
 impl ButtonBase {
-  fn new_fit_width(metrics: &Metrics, text: &'static str, pos: Vector2<u32>, colors: &'static Palette) -> Self {
-    let text_pos = [pos[0] as f64 + PADDING[0], pos[1] as f64 + PADDING[1] + metrics.ascent];
+  fn new_fit_width(text: &'static str, pos: Vector2<u32>, colors: &'static Palette) -> Self {
+    let v_metrics = font::get_v_metrics();
+    let text_pos = [pos[0] as f64 + PADDING[0], pos[1] as f64 + PADDING[1] + v_metrics.ascent];
     let plate_pos = [pos[0] as f64, pos[1] as f64];
-    let plate_width = (metrics.width * text.len() as f64 + PADDING[0] * 2.0).round();
-    let plate_height = (metrics.ascent - metrics.descent + PADDING[1] * 2.0).round();
+    let plate_width = (font::get_width_metric_str(text) + PADDING[0] * 2.0).round();
+    let plate_height = (v_metrics.ascent - v_metrics.descent + PADDING[1] * 2.0).round();
     ButtonBase::BoxFitWidth {
       text: TextComponent { pos: text_pos, text },
       plate: PlateComponent { pos: plate_pos, size: [plate_width, plate_height] },
@@ -213,13 +192,14 @@ impl ButtonBase {
     }
   }
 
-  fn new_double_text(metrics: &Metrics, text: [&'static str; 2], pos: Vector2<u32>, width: u32, colors: &'static Palette) -> Self {
-    let text_y = pos[1] as f64 + PADDING[1] + metrics.ascent;
+  fn new_double_text(text: [&'static str; 2], pos: Vector2<u32>, width: u32, colors: &'static Palette) -> Self {
+    let v_metrics = font::get_v_metrics();
+    let text_y = pos[1] as f64 + PADDING[1] + v_metrics.ascent;
     let text_pos_left = [pos[0] as f64 + PADDING[0], text_y];
-    let text_width_right = metrics.width * text[1].len() as f64;
+    let text_width_right = font::get_width_metric_str(text[1]);
     let text_pos_right = [pos[0] as f64 + width as f64 - text_width_right - PADDING[0], text_y];
     let plate_pos = [pos[0] as f64, pos[1] as f64];
-    let plate_height = (metrics.ascent - metrics.descent + PADDING[1] * 2.0).round();
+    let plate_height = (v_metrics.ascent - v_metrics.descent + PADDING[1] * 2.0).round();
     ButtonBase::BoxDoubleText {
       text_left: TextComponent { pos: text_pos_left, text: text[0] },
       text_right: TextComponent { pos: text_pos_right, text: text[1] },
@@ -373,6 +353,8 @@ pub enum ButtonId {
   ToolbarEditCoastal,
   ToolbarEditRecolor,
   ToolbarEditProblems,
+  ToolbarEditToggleLassoSnap,
+  ToolbarEditNextMaskMode,
   ToolbarViewMode1,
   ToolbarViewMode2,
   ToolbarViewMode3,
@@ -380,9 +362,9 @@ pub enum ButtonId {
   ToolbarViewMode5,
   ToolbarViewMode6,
   ToolbarViewToggleIds,
+  ToolbarViewResetZoom,
   #[cfg(debug_assertions)]
   ToolbarDebugValidatePixelCounts,
-  ToolbarViewResetZoom,
   SidebarToolPaintArea,
   SidebarToolPaintBucket,
   SidebarToolLasso
@@ -409,7 +391,9 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Redo", "Ctrl+Y", ButtonId::ToolbarEditRedo),
     ("Re-calculate Coastal Provinces", "Shift+C", ButtonId::ToolbarEditCoastal),
     ("Re-color Provinces", "Shift+R", ButtonId::ToolbarEditRecolor),
-    ("Calculate Map Errors/Warnings", "Shift+P", ButtonId::ToolbarEditProblems)
+    ("Calculate Map Errors/Warnings", "Shift+P", ButtonId::ToolbarEditProblems),
+    ("Toggle Lasso Pixel Snap", "", ButtonId::ToolbarEditToggleLassoSnap),
+    ("Next Brush Mask Mode", "Shift+M", ButtonId::ToolbarEditNextMaskMode)
   ]),
   ("View", &[
     ("Color/Province Map View Mode", "1", ButtonId::ToolbarViewMode1),
@@ -436,20 +420,18 @@ const SIDEBAR_PRIMITIVE: SidebarPrimitive<'static> = &[
 static TOOLBAR_HEIGHT: OnceCell<u32> = OnceCell::new();
 static SIDEBAR_WIDTH: OnceCell<u32> = OnceCell::new();
 
-pub fn construct_interface(font: &Font<'static>) -> Interface {
-  let metrics = Metrics::from_font(font);
-
+pub fn construct_interface() -> Interface {
   let mut pos_x = 0;
   let mut toolbar_height = 0;
   let mut toolbar_buttons = Vec::with_capacity(TOOLBAR_PRIMITIVE.len());
   for &(toolbar_button_text, toolbar_primitive_buttons) in TOOLBAR_PRIMITIVE {
     let mut buttons = Vec::with_capacity(toolbar_primitive_buttons.len());
-    let base = ButtonBase::new_fit_width(&metrics, toolbar_button_text, [pos_x, 0], &PALETTE_BUTTON_TOOLBAR);
+    let base = ButtonBase::new_fit_width(toolbar_button_text, [pos_x, 0], &PALETTE_BUTTON_TOOLBAR);
 
     let mut pos_y = base.height();
     for &(button_text_left, button_text_right, id) in toolbar_primitive_buttons {
       let text = [button_text_left, button_text_right];
-      let base = ButtonBase::new_double_text(&metrics, text, [pos_x, pos_y], TOOLBAR_DROPDOWN_WIDTH, &PALETTE_BUTTON);
+      let base = ButtonBase::new_double_text(text, [pos_x, pos_y], TOOLBAR_DROPDOWN_WIDTH, &PALETTE_BUTTON);
       pos_y += base.height();
 
       buttons.push(ButtonElement { base, id });

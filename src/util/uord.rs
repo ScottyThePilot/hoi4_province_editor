@@ -45,6 +45,16 @@ impl<T> UOrd<T> {
     }
   }
 
+  pub fn as_tuple_unordered(&self) -> (&T, &T) {
+    let UOrd { a, b } = self;
+    (a, b)
+  }
+
+  pub fn into_tuple_unordered(self) -> (T, T) {
+    let UOrd { a, b } = self;
+    (a, b)
+  }
+
   pub fn map<F, U>(self, mut f: F) -> UOrd<U>
   where F: FnMut(T) -> U {
     UOrd::new(f(self.a), f(self.b))

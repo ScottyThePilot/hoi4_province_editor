@@ -1,12 +1,10 @@
 //! Structures for managing the history state and abstracting changes applied to the map
 use fxhash::FxHashMap;
-use geo::{Coordinate, LineString, Polygon};
-use geo::algorithm::contains::Contains;
 use image::RgbImage;
 use vecmath::Vector2;
 
-use crate::app::canvas::ViewMode;
-use crate::app::map::{Bundle, Color, Extents, Map, ProvinceData, ProvinceKind, ConnectionData};
+use crate::app::canvas::{ViewMode, BrushMask};
+use crate::app::map::{Bundle, Color, Extents, Map, ProvinceData, ProvinceKind, ConnectionData, ConnectionKind};
 use crate::app::map::bridge::recolor_everything;
 use crate::util::XYIter;
 use crate::util::uord::UOrd;
@@ -108,6 +106,14 @@ impl History {
     });
   }
 
+  fn push_map_state_bufferless(&mut self, map: &Map, view_mode: ViewMode) {
+    self.push(BufferlessState {
+      province_data_map: map.province_data_map.clone(),
+      connection_data_map: map.connection_data_map.clone(),
+      view_mode
+    });
+  }
+
   /// Adds a new `PartialState` with, or expands the current `PartialState` with the provided extents
   fn update_partial_extents(&mut self, extents: Extents) {
     if let Some(Step::PartialState(partial_extents)) = self.steps.back_mut() {
@@ -122,7 +128,7 @@ impl History {
   fn merge_front(&mut self) {
     let mut complete = match self.steps.pop_front() {
       Some(Step::CompleteState(state)) => state,
-      Some(Step::SelectiveState(_) | Step::PartialState(_)) | None => panic!()
+      Some(_) | None => panic!()
     };
 
     let front = match self.steps.pop_front() {
@@ -130,9 +136,16 @@ impl History {
       Some(Step::SelectiveState(state)) => {
         let [xo, yo] = state.extents.to_offset();
         complete.province_data_map = state.province_data_map;
+        complete.connection_data_map = state.connection_data_map;
         for (x, y, &pixel) in state.color_buffer.enumerate_pixels() {
           complete.color_buffer.put_pixel(x + xo, y + yo, pixel);
         };
+
+        Step::CompleteState(complete)
+      },
+      Some(Step::BufferlessState(state)) => {
+        complete.province_data_map = state.province_data_map;
+        complete.connection_data_map = state.connection_data_map;
 
         Step::CompleteState(complete)
       },
@@ -260,8 +273,14 @@ impl History {
     }
   }
 
-  pub fn paint_pixel_lasso(&mut self, bundle: &mut Bundle, lasso: Vec<Vector2<f64>>, color: Color) -> Option<Extents> {
-    let (extents, pixels) = pixel_lasso(&bundle.map, lasso, color);
+  pub fn paint_pixel_lasso(
+    &mut self,
+    bundle: &mut Bundle,
+    lasso: Vec<Vector2<f64>>,
+    color: Color,
+    mask: Option<BrushMask>
+  ) -> Option<Extents> {
+    let (extents, pixels) = pixel_lasso(&bundle.map, lasso, color, mask);
     if !pixels.is_empty() {
       bundle.map.put_many_pixels(color, &pixels);
       self.push_map_state_selective(&bundle.map, ViewMode::Color, extents);
@@ -271,9 +290,17 @@ impl History {
     }
   }
 
-  pub fn paint_pixel_bucket(&mut self, bundle: &mut Bundle, pos: Vector2<u32>, color: Color) -> Option<Extents> {
+  pub fn paint_pixel_bucket(
+    &mut self,
+    bundle: &mut Bundle,
+    pos: Vector2<u32>,
+    color: Color,
+    mask: Option<BrushMask>
+  ) -> Option<Extents> {
     let which = bundle.map.get_color_at(pos);
-    if which != color {
+    let previous_kind = bundle.map.get_province(which).kind;
+    let masked = mask.map_or(true, |mask| mask.includes(previous_kind));
+    if masked && which != color {
       let extents = bundle.map.flood_fill_province(pos, color);
       self.push_map_state_selective(&bundle.map, ViewMode::Color, extents);
       Some(extents)
@@ -282,8 +309,15 @@ impl History {
     }
   }
 
-  pub fn paint_pixel_area(&mut self, bundle: &mut Bundle, pos: Vector2<f64>, radius: f64, color: Color) -> Option<Extents> {
-    let (extents, pixels) = pixel_area(&bundle.map, pos, radius, color);
+  pub fn paint_pixel_area(
+    &mut self,
+    bundle: &mut Bundle,
+    pos: Vector2<f64>,
+    radius: f64,
+    color: Color,
+    mask: Option<BrushMask>
+  ) -> Option<Extents> {
+    let (extents, pixels) = pixel_area(&bundle.map, pos, radius, color, mask);
     if !pixels.is_empty() {
       bundle.map.put_many_pixels(color, &pixels);
       self.update_partial_extents(extents);
@@ -303,6 +337,31 @@ impl History {
       None
     }
   }
+
+  pub fn create_adjacency(&mut self, bundle: &mut Bundle, rel: UOrd<Color>, kind: ConnectionKind) -> bool {
+    match bundle.map.connection_data_map.get_mut(&rel) {
+      Some(connection_data) if connection_data.kind == kind => false,
+      Some(connection_data) => {
+        Arc::make_mut(connection_data).kind = kind;
+        self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
+        true
+      },
+      None => {
+        bundle.map.connection_data_map.insert(rel, Arc::new(ConnectionData::new(kind)));
+        self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
+        true
+      }
+    }
+  }
+
+  pub fn remove_adjacency(&mut self, bundle: &mut Bundle, rel: UOrd<Color>) -> bool {
+    if let Some(_) = bundle.map.connection_data_map.remove(&rel) {
+      self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
+      true
+    } else {
+      false
+    }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,6 +373,7 @@ pub struct Commit {
 enum Step {
   CompleteState(CompleteState),
   SelectiveState(SelectiveState),
+  BufferlessState(BufferlessState),
   PartialState(Extents)
 }
 
@@ -322,6 +382,7 @@ impl Step {
     match self {
       Step::CompleteState(complete) => complete.apply(map),
       Step::SelectiveState(selective) => selective.apply(map),
+      Step::BufferlessState(bufferless) => bufferless.apply(map),
       Step::PartialState(_) => panic!()
     }
   }
@@ -330,6 +391,7 @@ impl Step {
     match self {
       Step::CompleteState(complete) => complete.apply_minimum(map),
       Step::SelectiveState(selective) => selective.apply_minimum(map),
+      Step::BufferlessState(_) => (), // BufferlessState has no `apply_minimum`
       Step::PartialState(_) => panic!()
     }
   }
@@ -343,7 +405,7 @@ impl Step {
 struct CompleteState {
   color_buffer: RgbImage,
   province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
-  connection_data_map: FxHashMap<UOrd<Color>, ConnectionData>,
+  connection_data_map: FxHashMap<UOrd<Color>, Arc<ConnectionData>>,
   view_mode: ViewMode
 }
 
@@ -351,6 +413,7 @@ impl CompleteState {
   fn apply(&self, map: &mut Map) -> Commit {
     map.color_buffer = self.color_buffer.clone();
     map.province_data_map = self.province_data_map.clone();
+    map.connection_data_map = self.connection_data_map.clone();
     Commit { view_mode: self.view_mode }
   }
 
@@ -363,7 +426,7 @@ impl CompleteState {
 struct SelectiveState {
   color_buffer: RgbImage,
   province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
-  connection_data_map: FxHashMap<UOrd<Color>, ConnectionData>,
+  connection_data_map: FxHashMap<UOrd<Color>, Arc<ConnectionData>>,
   view_mode: ViewMode,
   extents: Extents
 }
@@ -372,11 +435,27 @@ impl SelectiveState {
   fn apply(&self, map: &mut Map) -> Commit {
     map.put_selective_raw(&self.color_buffer, self.extents.to_offset());
     map.province_data_map = self.province_data_map.clone();
+    map.connection_data_map = self.connection_data_map.clone();
     Commit { view_mode: self.view_mode }
   }
 
   fn apply_minimum(&self, map: &mut Map) {
     map.put_selective_raw(&self.color_buffer, self.extents.to_offset());
+  }
+}
+
+#[derive(Debug)]
+struct BufferlessState {
+  province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
+  connection_data_map: FxHashMap<UOrd<Color>, Arc<ConnectionData>>,
+  view_mode: ViewMode
+}
+
+impl BufferlessState {
+  fn apply(&self, map: &mut Map) -> Commit {
+    map.province_data_map = self.province_data_map.clone();
+    map.connection_data_map = self.connection_data_map.clone();
+    Commit { view_mode: self.view_mode }
   }
 }
 
@@ -392,13 +471,22 @@ impl From<SelectiveState> for Step {
   }
 }
 
+impl From<BufferlessState> for Step {
+  fn from(value: BufferlessState) -> Step {
+    Step::BufferlessState(value)
+  }
+}
+
 impl From<Extents> for Step {
   fn from(value: Extents) -> Step {
     Step::PartialState(value)
   }
 }
 
-fn pixel_lasso(map: &Map, lasso: Vec<Vector2<f64>>, color: Color) -> (Extents, Vec<Vector2<u32>>) {
+fn pixel_lasso(map: &Map, lasso: Vec<Vector2<f64>>, color: Color, mask: Option<BrushMask>) -> (Extents, Vec<Vector2<u32>>) {
+  use geo::{Coordinate, LineString, Polygon};
+  use geo::algorithm::contains::Contains;
+
   let mut pixels = Vec::new();
   let mut extents = Extents::from_points(&lasso);
   extents.upper[0] = extents.upper[0].min(map.color_buffer.width() - 1);
@@ -407,7 +495,9 @@ fn pixel_lasso(map: &Map, lasso: Vec<Vector2<f64>>, color: Color) -> (Extents, V
   for [x, y] in XYIter::from_extents(extents) {
     let coord = Coordinate::from([x as f64 + 0.5, y as f64 + 0.5]);
     let previous_color = map.get_color_at([x, y]);
-    if color != previous_color && lasso.contains(&coord) {
+    let previous_kind = map.get_province(previous_color).kind;
+    let masked = mask.map_or(true, |mask| mask.includes(previous_kind));
+    if masked && color != previous_color && lasso.contains(&coord) {
       pixels.push([x, y]);
     };
   };
@@ -415,13 +505,15 @@ fn pixel_lasso(map: &Map, lasso: Vec<Vector2<f64>>, color: Color) -> (Extents, V
   (extents, pixels)
 }
 
-fn pixel_area(map: &Map, pos: Vector2<f64>, radius: f64, color: Color) -> (Extents, Vec<Vector2<u32>>) {
+fn pixel_area(map: &Map, pos: Vector2<f64>, radius: f64, color: Color, mask: Option<BrushMask>) -> (Extents, Vec<Vector2<u32>>) {
   let mut pixels = Vec::new();
   let extents = Extents::from_pos_radius(pos, radius, map.dimensions());
   for [x, y] in XYIter::from_extents(extents) {
     let distance = f64::hypot(x as f64 + 0.5 - pos[0], y as f64 + 0.5 - pos[1]);
     let previous_color = map.get_color_at([x, y]);
-    if distance < radius && color != previous_color {
+    let previous_kind = map.get_province(previous_color).kind;
+    let masked = mask.map_or(true, |mask| mask.includes(previous_kind));
+    if masked && distance < radius && color != previous_color {
       pixels.push([x, y]);
     };
   };

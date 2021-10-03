@@ -4,6 +4,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::app::map::Color;
+use crate::app::map::ConnectionKind;
 use crate::app::map::ProvinceKind;
 use crate::app::format::DefinitionKind;
 use crate::util::fx_hash_map_with_capacity;
@@ -15,11 +16,15 @@ const DEFAULT_CONFIG: &[u8] = include_bytes!("../assets/hoi4pe_config_default.to
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
-  #[serde(rename = "max-undo-states", alias = "max_undo_states")]
+  #[serde(alias = "max-undo-states")]
   pub max_undo_states: usize,
-  #[serde(rename = "preserve-ids", alias = "preserve_ids")]
+  #[serde(alias = "preserve-ids")]
   pub preserve_ids: bool,
-  #[serde(rename = "terrain", skip_serializing_if = "FxHashMap::is_empty")]
+  #[serde(alias = "change-view-mode-on-undo")]
+  pub change_view_mode_on_undo: bool,
+  #[serde(alias = "generate-coastal-on-save")]
+  pub generate_coastal_on_save: bool,
+  #[serde(alias = "terrain")]
   pub terrains: FxHashMap<String, Terrain>
 }
 
@@ -75,6 +80,15 @@ impl Config {
     continent.map_or(0, |continent| (continent + 1) % 16)
   }
 
+  pub fn cycle_connection(&self, connection_kind: Option<ConnectionKind>) -> ConnectionKind {
+    match connection_kind {
+      None => ConnectionKind::Strait,
+      Some(ConnectionKind::Strait) => ConnectionKind::Canal,
+      Some(ConnectionKind::Canal) => ConnectionKind::Impassable,
+      Some(ConnectionKind::Impassable) => ConnectionKind::Strait,
+    }
+  }
+
   pub fn kind_color(&self, kind: impl Into<ProvinceKind>) -> Color {
     match kind.into() {
       ProvinceKind::Land => [0x0a, 0xae, 0x3d],
@@ -120,6 +134,8 @@ impl Default for Config {
     Config {
       max_undo_states: 24,
       preserve_ids: false,
+      change_view_mode_on_undo: true,
+      generate_coastal_on_save: false,
       terrains: default_terrains()
     }
   }

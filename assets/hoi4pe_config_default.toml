@@ -5,6 +5,12 @@ max-undo-states = 24
 # so as to not break states, strategic regions, etc.
 preserve-ids = false
 
+# Whether undo/redo should change to the relevant view mode when used
+change-view-mode-on-undo = true
+
+# Whether coastal provinces should be re-generated upon saving
+generate-coastal-on-save = false
+
 # You can define custom terrains/biomes below, simply specify the name, the
 # color you want it to be in the editor, and the type of terrain it is (land/sea/lake)
 

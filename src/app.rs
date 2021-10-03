@@ -9,10 +9,10 @@ use graphics::context::Context;
 use graphics::glyph_cache::rusttype::GlyphCache;
 use opengl_graphics::{GlGraphics, Filter, Texture, TextureSettings};
 use piston::input::{Key, MouseButton};
-use rusttype::Font;
 use vecmath::Vector2;
 
 use crate::error::Error;
+use crate::font;
 use crate::events::{EventHandler, KeyMods};
 use self::alerts::Alerts;
 use self::canvas::{Canvas, ToolMode, ViewMode};
@@ -45,8 +45,6 @@ pub mod colors {
   pub const BUTTON_TOOLBAR_HOVER: Color = [0.3125, 0.3125, 0.3125, 1.0];
 }
 
-pub const FONT_SIZE: u32 = 9;
-
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
 
 pub struct App {
@@ -59,12 +57,10 @@ pub struct App {
 
 impl EventHandler for App {
   fn new(_gl: &mut GlGraphics) -> Self {
-    const FONT_DATA: &[u8] = include_bytes!("../assets/Consolas.ttf");
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
-    let font = Font::try_from_bytes(FONT_DATA).expect("unable to load font");
-    let mut glyph_cache = GlyphCache::from_font(font.clone(), (), texture_settings);
+    let mut glyph_cache = GlyphCache::from_font(font::get_font(), (), texture_settings);
     glyph_cache.preload_printable_ascii(10).expect("unable to preload font glyphs");
-    let interface = self::interface::construct_interface(&font);
+    let interface = self::interface::construct_interface();
 
     App {
       canvas: None,
@@ -119,13 +115,14 @@ impl EventHandler for App {
       (Some(canvas), true, Key::C) if mods.shift => canvas.calculate_coastal_provinces(),
       (Some(canvas), true, Key::R) if mods.shift => canvas.calculate_recolor_map(),
       (Some(canvas), true, Key::P) if mods.shift => canvas.display_problems(&mut self.alerts),
+      (Some(canvas), true, Key::M) if mods.shift => canvas.tool.cycle_brush_mask(),
       (Some(canvas), true, Key::H) => canvas.camera.reset(),
-      (Some(canvas), true, Key::D1) => canvas.set_view_mode(&mut self.alerts, ViewMode::Color),
-      (Some(canvas), true, Key::D2) => canvas.set_view_mode(&mut self.alerts, ViewMode::Kind),
-      (Some(canvas), true, Key::D3) => canvas.set_view_mode(&mut self.alerts, ViewMode::Terrain),
-      (Some(canvas), true, Key::D4) => canvas.set_view_mode(&mut self.alerts, ViewMode::Continent),
-      (Some(canvas), true, Key::D5) => canvas.set_view_mode(&mut self.alerts, ViewMode::Coastal),
-      (Some(canvas), true, Key::D6) => canvas.set_view_mode(&mut self.alerts, ViewMode::Adjacencies),
+      (Some(_), true, Key::D1) => self.action_change_view_mode(ViewMode::Color),
+      (Some(_), true, Key::D2) => self.action_change_view_mode(ViewMode::Kind),
+      (Some(_), true, Key::D3) => self.action_change_view_mode(ViewMode::Terrain),
+      (Some(_), true, Key::D4) => self.action_change_view_mode(ViewMode::Continent),
+      (Some(_), true, Key::D5) => self.action_change_view_mode(ViewMode::Coastal),
+      (Some(_), true, Key::D6) => self.action_change_view_mode(ViewMode::Adjacencies),
       _ => ()
     };
   }
@@ -234,12 +231,14 @@ impl App {
       (Some(canvas), ToolbarEditCoastal) => canvas.calculate_coastal_provinces(),
       (Some(canvas), ToolbarEditRecolor) => canvas.calculate_recolor_map(),
       (Some(canvas), ToolbarEditProblems) => canvas.display_problems(&mut self.alerts),
-      (Some(canvas), ToolbarViewMode1) => canvas.set_view_mode(&mut self.alerts, ViewMode::Color),
-      (Some(canvas), ToolbarViewMode2) => canvas.set_view_mode(&mut self.alerts, ViewMode::Kind),
-      (Some(canvas), ToolbarViewMode3) => canvas.set_view_mode(&mut self.alerts, ViewMode::Terrain),
-      (Some(canvas), ToolbarViewMode4) => canvas.set_view_mode(&mut self.alerts, ViewMode::Continent),
-      (Some(canvas), ToolbarViewMode5) => canvas.set_view_mode(&mut self.alerts, ViewMode::Coastal),
-      (Some(canvas), ToolbarViewMode6) => canvas.set_view_mode(&mut self.alerts, ViewMode::Adjacencies),
+      (Some(canvas), ToolbarEditToggleLassoSnap) => canvas.toggle_lasso_snap(),
+      (Some(canvas), ToolbarEditNextMaskMode) => canvas.tool.cycle_brush_mask(),
+      (Some(_), ToolbarViewMode1) => self.action_change_view_mode(ViewMode::Color),
+      (Some(_), ToolbarViewMode2) => self.action_change_view_mode(ViewMode::Kind),
+      (Some(_), ToolbarViewMode3) => self.action_change_view_mode(ViewMode::Terrain),
+      (Some(_), ToolbarViewMode4) => self.action_change_view_mode(ViewMode::Continent),
+      (Some(_), ToolbarViewMode5) => self.action_change_view_mode(ViewMode::Coastal),
+      (Some(_), ToolbarViewMode6) => self.action_change_view_mode(ViewMode::Adjacencies),
       (Some(canvas), ToolbarViewToggleIds) => canvas.toggle_province_ids(),
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
       (Some(canvas), SidebarToolPaintArea) => canvas.set_tool_mode(ToolMode::PaintArea),
@@ -262,6 +261,13 @@ impl App {
     self.painting = false;
     if let Some(canvas) = &mut self.canvas {
       canvas.deactivate_tool();
+    };
+  }
+
+  fn action_change_view_mode(&mut self, view_mode: ViewMode) {
+    self.painting = false;
+    if let Some(canvas) = &mut self.canvas {
+      canvas.set_view_mode(&mut self.alerts, view_mode);
     };
   }
 
@@ -337,8 +343,6 @@ impl App {
       let location = location.into_location()?;
       let success_message = format!("Saved map to {}", location);
       canvas.save(&location)?;
-      canvas.set_location(location);
-      canvas.modified = false;
       Ok(success_message)
     };
 

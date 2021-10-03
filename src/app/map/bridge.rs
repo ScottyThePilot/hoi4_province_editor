@@ -177,9 +177,14 @@ fn construct_map_data(
   // since the adjacencies map is indexed by color instead of id
   let mut connection_data_map = fx_hash_map_with_capacity(adjacencies_table.len());
   for a in adjacencies_table.into_iter() {
-    if let Some(rel) = get_color_index(&color_index, [a.from_id, a.to_id]) {
-      if let Some(connection_data) = ConnectionData::from_adjacency(a) {
-        connection_data_map.insert(rel, connection_data);
+    if let Some(rel) = get_color_indexes(&color_index, [a.from_id, a.to_id]) {
+      let connection_data = ConnectionData::from_adjacency(a, |through| {
+        get_color_index(&color_index, through)
+          .expect("adjacency present for an id that does not exist")
+      });
+
+      if let Some(connection_data) = connection_data {
+        connection_data_map.insert(rel, Arc::new(connection_data));
       };
     };
   };
@@ -212,7 +217,7 @@ fn construct_map_data(
 pub(super) fn recolor_everything(
   color_buffer: &mut RgbImage,
   province_data_map: &mut FxHashMap<Color, Arc<ProvinceData>>,
-  connection_data_map: &mut FxHashMap<UOrd<Color>, ConnectionData>
+  connection_data_map: &mut FxHashMap<UOrd<Color>, Arc<ConnectionData>>
 ) {
   let mut colors_list = fx_hash_set_with_capacity(province_data_map.len());
   let mut replacement_map = fx_hash_map_with_capacity(province_data_map.len());
@@ -231,8 +236,11 @@ pub(super) fn recolor_everything(
   *province_data_map = new_province_data_map;
 
   let mut new_connection_data_map = fx_hash_map_with_capacity(connection_data_map.len());
-  for (previous_rel, connection_data) in connection_data_map.drain() {
+  for (previous_rel, mut connection_data) in connection_data_map.drain() {
     let rel = previous_rel.map(|color| replacement_map[&color]);
+    // Replace `through`'s color with the new one
+    let connection_data_mut = Arc::make_mut(&mut connection_data);
+    connection_data_mut.through = connection_data_mut.through.map(|t| replacement_map[&t]);
     // This operation should never overwrite an existing entry
     let opt = new_connection_data_map.insert(rel, connection_data);
     debug_assert_eq!(opt, None);
@@ -386,7 +394,7 @@ fn deconstruct_map_data_preserve_ids(bundle: &Bundle) -> Result<MapData, Error> 
   let mut adjacencies_table = Vec::with_capacity(bundle.map.connections_count());
   for (&rel, connection_data) in &bundle.map.connection_data_map {
     let rel = rel.map(|color| color_index[&color]);
-    adjacencies_table.push(connection_data.to_adjacency(rel));
+    adjacencies_table.push(connection_data.to_adjacency(rel, |t| color_index[&t]));
   };
 
   adjacencies_table.sort();
@@ -414,7 +422,7 @@ fn deconstruct_map_data_no_preserve_ids(bundle: &Bundle) -> Result<MapData, Erro
   let mut adjacencies_table = Vec::with_capacity(bundle.map.connections_count());
   for (&rel, connection_data) in &bundle.map.connection_data_map {
     let rel = rel.map(|color| color_index[&color]);
-    adjacencies_table.push(connection_data.to_adjacency(rel));
+    adjacencies_table.push(connection_data.to_adjacency(rel, |t| color_index[&t]));
   };
 
   adjacencies_table.sort();
@@ -467,10 +475,14 @@ fn read_all<R: Read>(mut reader: R) -> io::Result<Cursor<Vec<u8>>> {
   Ok(Cursor::new(buf))
 }
 
-fn get_color_index(vec: &[Option<Color>], ids: [u32; 2]) -> Option<UOrd<Color>> {
-  let a = if let Some(&Some(t)) = vec.get(ids[0] as usize) { t } else { return None };
-  let b = if let Some(&Some(t)) = vec.get(ids[1] as usize) { t } else { return None };
+fn get_color_indexes(color_index: &[Option<Color>], [a, b]: [u32; 2]) -> Option<UOrd<Color>> {
+  let a = get_color_index(color_index, a)?;
+  let b = get_color_index(color_index, b)?;
   Some(UOrd::new(a, b))
+}
+
+fn get_color_index(color_index: &[Option<Color>], id: u32) -> Option<Color> {
+  if let Some(&Some(color)) = color_index.get(id as usize) { Some(color) } else { None }
 }
 
 fn maybe_not_found<T>(err: io::Result<T>) -> io::Result<Option<T>> {

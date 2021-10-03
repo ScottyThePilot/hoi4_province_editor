@@ -1,11 +1,11 @@
 #![warn(missing_debug_implementations)]
-
+#[macro_use]
+pub mod util;
 pub mod app;
 pub mod config;
 pub mod error;
 pub mod events;
-#[macro_use]
-pub mod util;
+pub mod font;
 
 use glutin_window::GlutinWindow;
 use opengl_graphics::{GlGraphics, OpenGL};

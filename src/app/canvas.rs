@@ -7,12 +7,13 @@ use itertools::Itertools;
 use opengl_graphics::{Filter, GlGraphics, Texture, TextureSettings};
 use vecmath::{Matrix2x3, Vector2};
 
-use super::{colors, FontGlyphCache, FONT_SIZE};
+use super::{colors, FontGlyphCache};
 use super::alerts::Alerts;
 use super::map::*;
 use super::format::DefinitionKind;
 use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use crate::config::Config;
+use crate::font::{self, FONT_SIZE};
 use crate::util::stringify_color;
 use crate::error::Error;
 
@@ -64,8 +65,16 @@ impl Canvas {
     })
   }
 
-  pub fn save(&self, location: &Location) -> Result<(), Error> {
-    self.bundle.save(location)
+  pub fn save(&mut self, location: &Location) -> Result<(), Error> {
+    if self.bundle.config.generate_coastal_on_save {
+      self.calculate_coastal_provinces();
+    };
+
+    self.bundle.save(location)?;
+    self.location = location.clone();
+    self.modified = false;
+
+    Ok(())
   }
 
   pub fn location(&self) -> &Location {
@@ -100,20 +109,35 @@ impl Canvas {
           ProvinceKind::Sea | ProvinceKind::Unknown => colors::WHITE
         };
 
-        let preserved_id = preserved_id.to_string();
-        let center_of_mass = self.camera.compute_position(province_data.center_of_mass());
-        let transform = ctx.transform.trans_pos(center_of_mass);
-        graphics::text(color, FONT_SIZE, &preserved_id, glyph_cache, transform, gl)
-          .expect("unable to draw text");
+        let center_of_mass = vecmath::vec2_add([0.5, 0.5], province_data.center_of_mass());
+        let center_of_mass = self.camera.compute_position(center_of_mass);
+        if self.camera.within_viewport(center_of_mass) {
+          let preserved_id = preserved_id.to_string();
+          let offset = [
+            font::get_width_metric_str(&preserved_id) / -2.0,
+            font::get_v_metrics().ascent - font::get_height_metric() / 2.0
+          ];
+          let transform = ctx.transform.trans_pos(center_of_mass).trans_pos(offset);
+          graphics::text(color, FONT_SIZE, &preserved_id, glyph_cache, transform, gl)
+            .expect("unable to draw text");
+        };
       };
     };
 
     if self.view_mode == ViewMode::Adjacencies {
+      let nearest = cursor_pos
+        .map(|cursor_pos| self.camera.relative_position(cursor_pos))
+        .and_then(|pos| self.bundle.map.get_rel_nearest(pos))
+        .map(|(rel, _dist)| rel);
       for (rel, connection_data) in self.bundle.map.iter_connection_data() {
-        let color = match connection_data.kind {
-          ConnectionKind::Strait => colors::ADJ_LAND,
-          ConnectionKind::Canal => colors::ADJ_SEA,
-          ConnectionKind::Impassable => colors::ADJ_IMPASSABLE
+        let color = if nearest == Some(rel) {
+          colors::PROBLEM
+        } else {
+          match connection_data.kind {
+            ConnectionKind::Strait => colors::ADJ_LAND,
+            ConnectionKind::Canal => colors::ADJ_SEA,
+            ConnectionKind::Impassable => colors::ADJ_IMPASSABLE
+          }
         };
 
         let (center1, center2) = self.bundle.map.get_connection_positions(rel);
@@ -183,6 +207,10 @@ impl Canvas {
     self.show_province_ids = !self.show_province_ids;
   }
 
+  pub fn toggle_lasso_snap(&mut self) {
+    self.tool.lasso_snap = !self.tool.lasso_snap;
+  }
+
   pub fn reload_config(&mut self, alerts: &mut Alerts) {
     match Config::load() {
       Ok(config) => {
@@ -221,7 +249,9 @@ impl Canvas {
   pub fn undo(&mut self) {
     if let Some(commit) = self.history.undo(&mut self.bundle.map) {
       self.problems.clear();
-      self.view_mode = commit.view_mode;
+      if self.bundle.config.change_view_mode_on_undo {
+        self.view_mode = commit.view_mode;
+      };
       self.refresh();
     };
   }
@@ -229,7 +259,9 @@ impl Canvas {
   pub fn redo(&mut self) {
     if let Some(commit) = self.history.redo(&mut self.bundle.map) {
       self.problems.clear();
-      self.view_mode = commit.view_mode;
+      if self.bundle.config.change_view_mode_on_undo {
+        self.view_mode = commit.view_mode;
+      };
       self.refresh();
     };
   }
@@ -310,7 +342,12 @@ impl Canvas {
         alerts.push(Ok(format!("Brush set to continent {}", continent)));
       },
       ViewMode::Coastal => (),
-      ViewMode::Adjacencies => ()
+      ViewMode::Adjacencies => {
+        let adjacency_kind = self.tool.adjacency_brush;
+        let adjacency_kind = self.bundle.config.cycle_connection(adjacency_kind);
+        self.tool.adjacency_brush = Some(adjacency_kind);
+        alerts.push(Ok(format!("Brush set to adjacencies {}", adjacency_kind.to_str().to_uppercase())));
+      }
     };
   }
 
@@ -355,14 +392,16 @@ impl Canvas {
 
   /// Activates the tool, ie, performs a left-click action
   pub fn activate_tool(&mut self, cursor_pos: Vector2<f64>) {
-    if let ViewMode::Color = self.view_mode {
-      match self.tool.mode {
+    match self.view_mode {
+      ViewMode::Color => match self.tool.mode {
         ToolMode::PaintArea => self.tool_paint_brush(cursor_pos),
         ToolMode::PaintBucket => self.tool_paint_bucket(cursor_pos),
         ToolMode::Lasso(_) => self.tool_lasso_add_point(cursor_pos)
-      };
-    } else {
-      self.tool_paint_brush(cursor_pos);
+      },
+      ViewMode::Adjacencies => {
+        // TODO
+      },
+      _ => self.tool_paint_brush(cursor_pos)
     };
   }
 
@@ -393,6 +432,12 @@ impl Canvas {
         self.tool_lasso_finish(lasso);
       } else {
         let point = self.camera.relative_position(cursor_pos);
+        let point = if self.tool.lasso_snap {
+          [point[0].round(), point[1].round()]
+        } else {
+          point
+        };
+
         lasso.push(point);
       };
     };
@@ -401,7 +446,7 @@ impl Canvas {
   fn tool_lasso_finish(&mut self, lasso: Vec<Vector2<f64>>) {
     if let (Some(color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
       if lasso.len() > 2 {
-        if let Some(extents) = self.history.paint_pixel_lasso(&mut self.bundle, lasso, color) {
+        if let Some(extents) = self.history.paint_pixel_lasso(&mut self.bundle, lasso, color, self.tool.brush_mask) {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);
@@ -414,7 +459,7 @@ impl Canvas {
     if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       if let (Some(color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
         let pos = self.camera.relative_position(cursor_pos);
-        if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.tool.radius, color) {
+        if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.tool.radius, color, self.tool.brush_mask) {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);
@@ -445,7 +490,7 @@ impl Canvas {
   fn tool_paint_bucket(&mut self, cursor_pos: Vector2<f64>) {
     if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       if let (Some(fill_color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
-        if let Some(extents) = self.history.paint_pixel_bucket(&mut self.bundle, pos, fill_color) {
+        if let Some(extents) = self.history.paint_pixel_bucket(&mut self.bundle, pos, fill_color, self.tool.brush_mask) {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);
@@ -519,7 +564,21 @@ impl Canvas {
         None => "continent (no brush)".to_owned()
       },
       ViewMode::Coastal => "coastal".to_owned(),
-      ViewMode::Adjacencies => "adjacencies".to_owned()
+      ViewMode::Adjacencies => match self.tool.adjacency_brush {
+        Some(connection) => format!("adjacencies {}", connection.to_str().to_uppercase()),
+        None => "adjacencies (no brush)".to_owned()
+      }
+    }
+  }
+
+  fn brush_mask_info(&self) -> String {
+    if let ViewMode::Color = self.view_mode {
+      match self.tool.brush_mask {
+        Some(brush_mask) => format!("mask {}", brush_mask.to_str()),
+        None => "no mask".to_owned()
+      }
+    } else {
+      String::new()
     }
   }
 
@@ -529,7 +588,8 @@ impl Canvas {
       .and_then(|cursor_pos| self.camera.relative_position_int(cursor_pos))
       .map_or_else(String::new, |[x, y]| format!("{}, {} px", x, y));
     let brush_info = self.brush_info();
-    format!("{:<24}{:<24}{}", cursor_info, zoom_info, brush_info)
+    let brush_mask_info = self.brush_mask_info();
+    format!("{:<24}{:<24}{:<24}{}", cursor_info, zoom_info, brush_info, brush_mask_info)
   }
 }
 
@@ -558,8 +618,21 @@ pub struct ToolSettings {
   pub kind_brush: Option<DefinitionKind>,
   pub terrain_brush: Option<String>,
   pub continent_brush: Option<u16>,
+  pub adjacency_brush: Option<ConnectionKind>,
+  pub brush_mask: Option<BrushMask>,
+  pub lasso_snap: bool,
   pub radius: f64,
   pub mode: ToolMode
+}
+
+impl ToolSettings {
+  pub fn cycle_brush_mask(&mut self) {
+    self.brush_mask = match self.brush_mask {
+      None => Some(BrushMask::LandLakes),
+      Some(BrushMask::LandLakes) => Some(BrushMask::Sea),
+      Some(BrushMask::Sea) => None
+    }
+  }
 }
 
 impl Default for ToolSettings {
@@ -569,6 +642,9 @@ impl Default for ToolSettings {
       kind_brush: None,
       terrain_brush: None,
       continent_brush: None,
+      adjacency_brush: None,
+      brush_mask: None,
+      lasso_snap: false,
       radius: 8.0,
       mode: ToolMode::default()
     }
@@ -626,6 +702,26 @@ pub enum BrushMask {
   Sea
 }
 
+impl BrushMask {
+  #[inline]
+  pub fn includes(&self, kind: impl Into<ProvinceKind>) -> bool {
+    match (self, kind.into()) {
+      (BrushMask::LandLakes, ProvinceKind::Land) => true,
+      (BrushMask::LandLakes, ProvinceKind::Lake) => true,
+      (BrushMask::Sea, ProvinceKind::Sea) => true,
+      (_, ProvinceKind::Unknown) => true,
+      _ => false
+    }
+  }
+
+  fn to_str(self) -> &'static str {
+    match self {
+      BrushMask::LandLakes => "land + lakes",
+      BrushMask::Sea => "sea"
+    }
+  }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ViewMode {
   Color,
@@ -663,7 +759,6 @@ impl Camera {
       panning: false
     }
   }
-
 
   pub fn on_mouse_relative(&mut self, rel: Vector2<f64>) {
     if self.panning {
@@ -717,8 +812,13 @@ impl Camera {
   }
 
   fn within_dimensions(&self, pos: Vector2<f64>) -> bool {
-    (0.0..self.texture_size[0]).contains(&pos[0]) &&
-    (0.0..self.texture_size[1]).contains(&pos[1])
+    0.0 <= pos[0] && pos[0] < self.texture_size[0] &&
+    0.0 <= pos[1] && pos[1] < self.texture_size[1]
+  }
+
+  fn within_viewport(&self, pos: Vector2<f64>) -> bool {
+    0.0 <= pos[0] && pos[0] < WINDOW_WIDTH as f64 &&
+    0.0 <= pos[1] && pos[1] < WINDOW_HEIGHT as f64
   }
 }
 

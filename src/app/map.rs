@@ -168,7 +168,7 @@ impl Bundle {
 pub struct Map {
   color_buffer: RgbImage,
   province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
-  connection_data_map: FxHashMap<UOrd<Color>, ConnectionData>,
+  connection_data_map: FxHashMap<UOrd<Color>, Arc<ConnectionData>>,
   preserved_id_count: Option<u32>
 }
 
@@ -417,7 +417,7 @@ impl Map {
       .any(|province_data| province_data.kind == ProvinceKind::Unknown)
   }
 
-  /// Replaces all of one color in `color_buffer` without any checks
+  /// Replaces all of one color in `color_buffer`
   fn replace_color_raw(&mut self, which: Color, color: Color) -> Extents {
     let mut out: Option<Extents> = None;
     for (x, y, Rgb(pixel)) in self.color_buffer.enumerate_pixels_mut() {
@@ -433,7 +433,7 @@ impl Map {
     out.expect("color not found in map")
   }
 
-  /// Replaces the key of one province with a new color in `province_data_map` without any checks
+  /// Replaces the key of one province with a new color in `province_data_map`
   fn rekey_province_raw(&mut self, which: Color, color: Color) {
     let province_data = self.province_data_map.remove(&which)
       .expect("province not found with color");
@@ -441,11 +441,14 @@ impl Map {
     debug_assert_eq!(result, None);
   }
 
-  /// Replaces the keys of all connections containing one color with another color without any checks
+  /// Replaces the keys of all connections containing one color with another color
   fn rekey_connections_raw(&mut self, which: Color, color: Color) {
     if !self.connection_data_map.is_empty() {
       let mut new_connection_data_map = fx_hash_map_with_capacity(self.connections_count());
       for (rel, connection_data) in self.connection_data_map.drain() {
+        // `through` does not get replaced here because it should
+        // not be one of the colors that compose `rel`
+        debug_assert_ne!(connection_data.through, Some(which));
         new_connection_data_map.insert(rel.replace(which, color), connection_data);
       };
 
@@ -536,6 +539,12 @@ impl Map {
     self.connection_data_map.get(&rel).expect("connection not found with rel")
   }
 
+  fn get_connection_mut(&mut self, rel: UOrd<Color>) -> &mut ConnectionData {
+    let connection = self.connection_data_map.get_mut(&rel)
+      .expect("connection not found with color");
+    Arc::make_mut(connection)
+  }
+
   pub fn get_connection_positions(&self, rel: UOrd<Color>) -> (Vector2<f64>, Vector2<f64>) {
     let connection_data = self.get_connection(rel);
     if let (Some(start), Some(stop)) = (connection_data.start, connection_data.stop) {
@@ -548,12 +557,55 @@ impl Map {
     }
   }
 
+  pub fn get_connection_nearest_within(&self, pos: Vector2<f64>, range: f64) -> Option<&ConnectionData> {
+    self.get_rel_nearest(pos).and_then(|(rel, dist)| {
+      (dist < range).then(|| self.get_connection(rel))
+    })
+  }
+
+  pub fn get_connection_nearest(&self, pos: Vector2<f64>) -> Option<&ConnectionData> {
+    self.get_rel_nearest(pos).map(|(rel, _)| self.get_connection(rel))
+  }
+
+  pub fn get_rel_nearest(&self, pos: Vector2<f64>) -> Option<(UOrd<Color>, f64)> {
+    use geo::{Point, Line, Closest};
+    use geo::algorithm::closest_point::ClosestPoint;
+    use geo::algorithm::euclidean_distance::EuclideanDistance;
+
+    fn distance(map: &Map, rel: UOrd<Color>, pos: Vector2<f64>) -> f64 {
+      let (a, b) = map.get_connection_positions(rel);
+      let line = Line::new(a, b);
+      let point = Point::from(pos);
+      let closest = match line.closest_point(&point) {
+        Closest::Indeterminate => unreachable!(),
+        Closest::SinglePoint(point) => point,
+        Closest::Intersection(point) => point
+      };
+
+      closest.euclidean_distance(&point)
+    }
+
+    fn convert(f: f64) -> u64 {
+      const BIT: u64 = 1 << (64 - 1);
+      let u = unsafe { std::mem::transmute::<f64, u64>(f) };
+      if u & BIT == 0 { u | BIT } else { !u }
+    }
+
+    let mut pairs = self.connection_data_map.keys()
+      .map(|&rel| (rel, distance(self, rel, pos)))
+      .collect::<Vec<(UOrd<Color>, f64)>>();
+    pairs.sort_by_key(|&(_, d)| convert(d));
+
+    pairs.first()
+      .cloned()
+  }
+
   pub fn iter_province_data(&self) -> impl Iterator<Item = (Color, &ProvinceData)> {
     self.province_data_map.iter().map(|(i, d)| (*i, &**d))
   }
 
   pub fn iter_connection_data(&self) -> impl Iterator<Item = (UOrd<Color>, &ConnectionData)> {
-    self.connection_data_map.iter().map(|(i, c)| (*i, c))
+    self.connection_data_map.iter().map(|(i, c)| (*i, &**c))
   }
 }
 
@@ -814,7 +866,7 @@ impl From<ProvinceKind> for &'static str {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionData {
   pub kind: ConnectionKind,
-  pub through: Option<u32>,
+  pub through: Option<Color>,
   pub start: Option<[u32; 2]>,
   pub stop: Option<[u32; 2]>,
   pub rule_name: String,
@@ -822,10 +874,22 @@ pub struct ConnectionData {
 }
 
 impl ConnectionData {
-  pub fn from_adjacency(adjacency: Adjacency) -> Option<Self> {
+  fn new(kind: ConnectionKind) -> Self {
+    ConnectionData {
+      kind,
+      through: None,
+      start: None,
+      stop: None,
+      rule_name: String::new(),
+      comment: String::new()
+    }
+  }
+
+  pub fn from_adjacency<F>(adjacency: Adjacency, through: F) -> Option<Self>
+  where F: Fn(u32) -> Color {
     Some(ConnectionData {
       kind: ConnectionKind::from_adjacency_kind(adjacency.kind)?,
-      through: adjacency.through,
+      through: adjacency.through.map(through),
       start: adjacency.start,
       stop: adjacency.stop,
       rule_name: adjacency.rule_name,
@@ -833,13 +897,14 @@ impl ConnectionData {
     })
   }
 
-  pub fn to_adjacency(&self, rel: UOrd<u32>) -> Adjacency {
+  pub fn to_adjacency<F>(&self, rel: UOrd<u32>, through: F) -> Adjacency
+  where F: Fn(Color) -> u32 {
     let (from_id, to_id) = rel.into_tuple();
     Adjacency {
       from_id,
       to_id,
       kind: self.kind.into_adjacency_kind(),
-      through: self.through,
+      through: self.through.map(through),
       start: self.start,
       stop: self.stop,
       rule_name: self.rule_name.clone(),
@@ -856,6 +921,14 @@ pub enum ConnectionKind {
 }
 
 impl ConnectionKind {
+  pub fn to_str(&self) -> &'static str {
+    match self {
+      ConnectionKind::Strait => "strait/sea",
+      ConnectionKind::Canal => "canal/land",
+      ConnectionKind::Impassable => "impassable"
+    }
+  }
+
   pub fn from_adjacency_kind(kind: AdjacencyKind) -> Option<ConnectionKind> {
     match kind {
       AdjacencyKind::Land => Some(ConnectionKind::Canal),

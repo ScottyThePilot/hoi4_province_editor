@@ -67,7 +67,7 @@ impl Canvas {
 
   pub fn save(&mut self, location: &Location) -> Result<(), Error> {
     if self.bundle.config.generate_coastal_on_save {
-      self.calculate_coastal_provinces();
+      self.history.calculate_coastal_provinces(&mut self.bundle);
     };
 
     self.bundle.save(location)?;

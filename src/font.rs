@@ -1,4 +1,4 @@
-use once_cell::sync::OnceCell;
+use once_cell::sync::Lazy;
 use rusttype::{Font, Scale};
 
 pub const FONT_SIZE: u32 = 11;
@@ -10,12 +10,12 @@ pub fn get_font() -> Font<'static> {
 
 fn get_font_ref() -> &'static Font<'static> {
   const FONT_DATA: &[u8] = include_bytes!("../assets/Inconsolata-Regular.ttf");
-  static FONT: OnceCell<Font<'static>> = OnceCell::new();
-
-  FONT.get_or_init(|| {
+  static FONT: Lazy<Font<'static>> = Lazy::new(|| {
     Font::try_from_bytes(FONT_DATA)
       .expect("unable to load font")
-  })
+  });
+
+  &*FONT
 }
 
 pub fn get_width_metric(ch: char) -> f64 {

@@ -4,7 +4,7 @@ use graphics::context::Context;
 use graphics::types::Color;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use image::codecs::png::PngDecoder;
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use opengl_graphics::{Texture, TextureSettings, GlGraphics};
 use vecmath::Vector2;
 
@@ -485,19 +485,16 @@ pub fn get_sidebar_width() -> f64 {
 }
 
 fn get_sprite(sprite_coords: [u32; 4]) -> Texture {
-  const SPRITESHEET_RAW: &[u8] = include_bytes!("../../assets/spritesheet.png");
-  static SPRITESHEET: OnceCell<RgbaImage> = OnceCell::new();
-
-  fn init_spritesheet() -> RgbaImage {
-    let decoder = PngDecoder::new(SPRITESHEET_RAW)
+  const SPRITESHEET_DATA: &[u8] = include_bytes!("../../assets/spritesheet.png");
+  static SPRITESHEET: Lazy<RgbaImage> = Lazy::new(|| {
+    let decoder = PngDecoder::new(SPRITESHEET_DATA)
       .expect("unable to decode spritesheet");
     let img = DynamicImage::from_decoder(decoder)
       .expect("unable to decode spritesheet");
     img.to_rgba8()
-  }
+  });
 
-  let spritesheet = SPRITESHEET.get_or_init(init_spritesheet);
   let [x, y, width, height] = sprite_coords;
-  let view = spritesheet.view(x, y, width, height);
+  let view = SPRITESHEET.view(x, y, width, height);
   Texture::from_image(&view.to_image(), &TextureSettings::new())
 }

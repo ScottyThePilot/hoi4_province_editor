@@ -1,4 +1,4 @@
-use once_cell::sync::OnceCell;
+use once_cell::sync::Lazy;
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
 
@@ -8,9 +8,7 @@ use crate::util::hsl::hsl_to_rgb;
 const SEQUENCE_LENGTH: usize = 4096;
 
 pub fn sequence_color(index: usize) -> Option<Color> {
-  static CACHE: OnceCell<Vec<Color>> = OnceCell::new();
-
-  fn generate_sequence() -> Vec<Color> {
+  static SEQUENCE: Lazy<Vec<Color>> = Lazy::new(|| {
     let mut rng = SmallRng::seed_from_u64(0x938b902e4f56bf5b);
     let mut sequence = Vec::with_capacity(SEQUENCE_LENGTH);
     sequence.push([0; 3]);
@@ -22,8 +20,7 @@ pub fn sequence_color(index: usize) -> Option<Color> {
     };
 
     sequence
-  }
+  });
 
-  CACHE.get_or_init(generate_sequence)
-    .get(index).cloned()
+  SEQUENCE.get(index).cloned()
 }

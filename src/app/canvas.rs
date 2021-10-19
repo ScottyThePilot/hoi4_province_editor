@@ -19,6 +19,7 @@ use crate::error::Error;
 
 use std::path::Path;
 use std::fs::File;
+use std::io::BufWriter;
 use std::fmt;
 
 const ZOOM_SENSITIVITY: f64 = 0.125;
@@ -823,5 +824,5 @@ impl Camera {
 }
 
 fn export_image_buffer<P: AsRef<Path>>(path: P, image: RgbImage) -> Result<(), Error> {
-  super::map::write_rgb_bmp_image(File::create(path)?, &image)
+  super::map::write_rgb_bmp_image(BufWriter::new(File::create(path)?), &image)
 }

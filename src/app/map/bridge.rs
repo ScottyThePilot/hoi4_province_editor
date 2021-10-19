@@ -14,7 +14,7 @@ use crate::util::uord::UOrd;
 
 use std::path::{Path, PathBuf};
 use std::collections::hash_map::Entry;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Cursor, BufWriter, Read, Write};
 use std::cmp::Ordering;
 use std::fs::File;
 use std::fmt;
@@ -302,7 +302,7 @@ pub fn save_bundle(location: &Location, bundle: &Bundle) -> Result<(), Error> {
     Location::Dir(path) => {
       let (definition_table, adjacencies_table, id_changes) = deconstruct_map_data(bundle)?;
 
-      let file = create_file(path.join("provinces.bmp"))?;
+      let file = BufWriter::new(create_file(path.join("provinces.bmp"))?);
       write_rgb_bmp_image(file, &bundle.map.color_buffer)?;
 
       let file = create_file(path.join("definition.csv"))?;

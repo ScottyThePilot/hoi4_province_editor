@@ -365,6 +365,8 @@ pub enum ButtonId {
   ToolbarViewResetZoom,
   #[cfg(debug_assertions)]
   ToolbarDebugValidatePixelCounts,
+  #[cfg(debug_assertions)]
+  ToolbarDebugTriggerCrash,
   SidebarToolPaintArea,
   SidebarToolPaintBucket,
   SidebarToolLasso
@@ -407,7 +409,8 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
   ]),
   #[cfg(debug_assertions)]
   ("Debug", &[
-    ("Validate Pixel Counts", "", ButtonId::ToolbarDebugValidatePixelCounts)
+    ("Validate Pixel Counts", "", ButtonId::ToolbarDebugValidatePixelCounts),
+    ("Trigger a Crash", "", ButtonId::ToolbarDebugTriggerCrash)
   ])
 ];
 

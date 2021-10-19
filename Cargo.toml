@@ -9,9 +9,9 @@ repository = "https://github.com/ScottyThePilot/hoi4_province_editor"
 license = "MIT"
 
 [dependencies]
-better-panic = "0.2"
 ccl-fxhash = "3.0"
 chrono = "0.4"
+color-backtrace = "0.5"
 crossbeam = "0.8"
 dunce = "1.0"
 geo = "0.18"
@@ -28,6 +28,7 @@ pistoncore-glutin_window = "0.69"
 rand = { version = "0.8", features = ["small_rng"] }
 rusttype = "0.9"
 serde = { version = "1.0", features = ["derive"] }
+termcolor = "1.1"
 thiserror = "1.0"
 toml = "0.5"
 vecmath = "1.0"
@@ -35,6 +36,8 @@ zip = "0.5"
 
 [profile.dev]
 opt-level = 1
+debug = 2
 
 [profile.release]
 opt-level = 3
+debug = 1

@@ -1,4 +1,5 @@
 #![warn(missing_debug_implementations)]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #[macro_use]
 pub mod util;
 pub mod app;
@@ -24,7 +25,7 @@ const WINDOW_HEIGHT: u32 = 720;
 pub const APPNAME: &str = concat!("HOI4 Province Map Editor v", env!("CARGO_PKG_VERSION"));
 
 fn main() {
-  better_panic::install();
+  install_handler();
 
   let root = root_dir().expect("unable to find root dir");
   env::set_current_dir(root).expect("unable to set root dir");
@@ -50,4 +51,33 @@ fn root_dir() -> io::Result<PathBuf> {
   };
 
   Err(io::Error::new(io::ErrorKind::Other, "failed to find an application root"))
+}
+
+fn install_handler() {
+  use chrono::Local;
+  use color_backtrace::{BacktracePrinter, Verbosity};
+  use termcolor::NoColor;
+
+  use std::fs::File;
+
+  if cfg!(debug_assertions) {
+    // Print to console if debug assertions are enabled
+    let out = color_backtrace::default_output_stream();
+    BacktracePrinter::new()
+      .verbosity(Verbosity::Medium)
+      .install(out);
+  } else {
+    // Dump to a file if debug assertions are disabled
+    let printer = BacktracePrinter::new()
+      .lib_verbosity(Verbosity::Medium);
+    std::panic::set_hook(Box::new(move |pi| {
+      let now = Local::now().format("%Y%m%d_%H%M%S");
+      match File::create(format!("crash_{}.log", now)) {
+        Ok(file) => if let Err(e) = printer.print_panic_info(pi, &mut NoColor::new(file)) {
+          eprintln!("Error while printing panic: {:?}", e);
+        },
+        Err(e) => eprintln!("Error creating crash log: {:?}", e)
+      };
+    }));
+  };
 }

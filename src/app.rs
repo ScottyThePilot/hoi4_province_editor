@@ -246,6 +246,8 @@ impl App {
       (Some(canvas), SidebarToolLasso) => canvas.set_tool_mode(ToolMode::new_lasso()),
       #[cfg(debug_assertions)]
       (Some(canvas), ToolbarDebugValidatePixelCounts) => canvas.validate_pixel_counts(&mut self.alerts),
+      #[cfg(debug_assertions)]
+      (_, ToolbarDebugTriggerCrash) => panic!("debug crash"),
       (None, _) => self.alerts.push(Err("You must have a map loaded to use this")),
     };
   }

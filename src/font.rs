@@ -1,5 +1,12 @@
+use chrono::Local;
 use once_cell::sync::Lazy;
 use rusttype::{Font, Scale};
+
+use std::process::Command;
+use std::env;
+use std::fs;
+
+use crate::error::Error;
 
 pub const FONT_SIZE: u32 = 11;
 const FONT_SCALE: Scale = Scale { x: 15.0, y: 15.0 };
@@ -57,4 +64,26 @@ pub fn get_v_metrics() -> VMetrics {
 pub struct VMetrics {
   pub ascent: f64,
   pub descent: f64
+}
+
+pub fn view_font_license() -> Result<(), Error> {
+  const LICENSE_CONTENTS: &[u8] = include_bytes!("../assets/Inconsolata-OFL.txt");
+
+  let now = Local::now().format("%Y%m%d-%H%M%S");
+  let path = env::temp_dir().join(format!("Inconsolata-OFL-{}.txt", now));
+
+  fs::write(&path, LICENSE_CONTENTS)
+    .map_err(|err| format!("Failed to write font license to disk: {}", err))?;
+
+  if cfg!(target_os = "windows") {
+    Command::new("notepad").arg(path).spawn()
+      .map_err(|err| format!("Failed to open license: {}", err))?;
+  } else if cfg!(target_os = "macos") {
+    Command::new("open").arg(path).spawn()
+      .map_err(|err| format!("Failed to open license: {}", err))?;
+  } else {
+    unimplemented!()
+  };
+
+  Ok(())
 }

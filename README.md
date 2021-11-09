@@ -46,6 +46,9 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - `Shift-C` will re-calculate coastal provinces
 - `Shift-R` will randomly re-color all of the provinces on the map
 - `Shift-P` will calculate and display symbols indicating map errors/warnings
+- `A` switches to the area/brush tool
+- `B` switches to the bucket/fill tool
+- `L` switches to the lasso tool
 - `H` resets the camera view
 - `Tab` show all recent informative alert messages
 - `Escape` to cancel a lasso

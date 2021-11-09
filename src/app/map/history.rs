@@ -203,7 +203,7 @@ impl History {
     let which = bundle.map.get_color_at(pos);
     let province_data = bundle.map.get_province(which);
     if province_data.kind != kind && kind != ProvinceKind::Unknown {
-      let terrain = bundle.config.default_terrain(kind);
+      let terrain = kind.default_terrain();
       let continent = kind.correct_continent_id(province_data.continent);
       // Because the type changed, a repaint is always necessary
       let repaint = bundle.random_color_pure(kind);
@@ -338,26 +338,26 @@ impl History {
     }
   }
 
-  pub fn create_adjacency(&mut self, bundle: &mut Bundle, rel: UOrd<Color>, kind: ConnectionKind) -> bool {
-    match bundle.map.connection_data_map.get_mut(&rel) {
-      Some(connection_data) if connection_data.kind == kind => false,
-      Some(connection_data) => {
-        Arc::make_mut(connection_data).kind = kind;
-        self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
-        true
-      },
-      None => {
-        bundle.map.connection_data_map.insert(rel, Arc::new(ConnectionData::new(kind)));
-        self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
-        true
-      }
-    }
-  }
+  pub fn add_or_remove_connection(&mut self, bundle: &mut Bundle, rel: UOrd<Color>, kind: ConnectionKind) -> bool {
+    use std::collections::hash_map::Entry;
+    if rel.is_distinct() {
+      match bundle.map.connection_data_map.entry(rel) {
+        Entry::Vacant(entry) => {
+          entry.insert(Arc::new(ConnectionData::new(kind)));
+          self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
+          true
+        },
+        Entry::Occupied(entry) => {
+          if entry.get().kind == kind {
+            entry.remove();
+          } else {
+            Arc::make_mut(entry.into_mut()).kind = kind;
+          };
 
-  pub fn remove_adjacency(&mut self, bundle: &mut Bundle, rel: UOrd<Color>) -> bool {
-    if let Some(_) = bundle.map.connection_data_map.remove(&rel) {
-      self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
-      true
+          self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
+          true
+        }
+      }
     } else {
       false
     }

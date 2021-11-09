@@ -15,9 +15,27 @@ impl<T> UOrd<T> {
   }
 
   #[inline]
+  pub fn first(self) -> T
+  where T: Ord {
+    self.a.min(self.b)
+  }
+
+  #[inline]
+  pub fn last(self) -> T
+  where T: Ord {
+    self.a.max(self.b)
+  }
+
+  #[inline]
   pub fn contains<Q>(&self, x: &Q) -> bool
   where T: Borrow<Q>, Q: Eq {
     self.a.borrow() == x || self.b.borrow() == x
+  }
+
+  #[inline]
+  pub fn is_distinct(&self) -> bool
+  where T: Eq {
+    self.a != self.b
   }
 
   pub fn replace(self, from: T, to: T) -> Self
@@ -63,6 +81,33 @@ impl<T> UOrd<T> {
   pub fn map_maybe<F, U>(self, mut f: F) -> Option<UOrd<U>>
   where F: FnMut(T) -> Option<U> {
     Some(UOrd::new(f(self.a)?, f(self.b)?))
+  }
+
+  pub fn iter(&self) -> std::array::IntoIter<&T, 2>
+  where T: Ord {
+    self.into_iter()
+  }
+}
+
+impl<T: Ord> IntoIterator for UOrd<T> {
+  type Item = T;
+  type IntoIter = std::array::IntoIter<T, 2>;
+
+  #[inline]
+  fn into_iter(self) -> Self::IntoIter {
+    let (a, b) = self.into_tuple();
+    [a, b].into_iter()
+  }
+}
+
+impl<'a, T: Ord> IntoIterator for &'a UOrd<T> {
+  type Item = &'a T;
+  type IntoIter = std::array::IntoIter<&'a T, 2>;
+
+  #[inline]
+  fn into_iter(self) -> Self::IntoIter {
+    let (a, b) = self.as_tuple();
+    [a, b].into_iter()
   }
 }
 

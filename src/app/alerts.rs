@@ -1,6 +1,6 @@
 use graphics::Transformed;
 use graphics::context::Context;
-use graphics::types::Color;
+use graphics::types::Color as DrawColor;
 use opengl_graphics::GlGraphics;
 
 use super::{colors, FontGlyphCache};
@@ -96,17 +96,17 @@ impl Alerts {
     };
   }
 
-  fn push_message(&mut self, text: String, color: Color) {
+  fn push_message(&mut self, text: String, color: DrawColor) {
     self.messages.push_back(AlertMessage::new(text, color, self.now + self.max_lifetime));
   }
 
-  fn iter_all(&self) -> impl Iterator<Item = (&str, Color)> {
+  fn iter_all(&self) -> impl Iterator<Item = (&str, DrawColor)> {
     self.messages.iter()
       .rev()
       .map(|m| (m.text.as_str(), m.get_color()))
   }
 
-  fn iter(&self) -> impl Iterator<Item = (&str, Color)> {
+  fn iter(&self) -> impl Iterator<Item = (&str, DrawColor)> {
     self.messages.iter()
       .rev()
       .filter(move |m| !m.is_dead(self.now))
@@ -117,12 +117,12 @@ impl Alerts {
 #[derive(Debug)]
 struct AlertMessage {
   text: String,
-  color: Color,
+  color: DrawColor,
   expiry: f32
 }
 
 impl AlertMessage {
-  fn new(text: String, color: Color, expiry: f32) -> Self {
+  fn new(text: String, color: DrawColor, expiry: f32) -> Self {
     AlertMessage { text, color, expiry }
   }
 
@@ -130,16 +130,16 @@ impl AlertMessage {
     now >= self.expiry
   }
 
-  fn get_color(&self) -> Color {
+  fn get_color(&self) -> DrawColor {
     self.color
   }
 
-  fn get_color_alpha(&self, now: f32) -> Color {
+  fn get_color_alpha(&self, now: f32) -> DrawColor {
     let mut color = self.color;
     color[3] = (self.expiry - now).min(1.0).max(0.0);
     color
   }
 }
 
-const TEXT_SYSTEM: Color = [1.0, 1.0, 1.0, 1.0];
-const TEXT_SYSTEM_ERROR: Color = [1.0, 0.2, 0.2, 1.0];
+const TEXT_SYSTEM: DrawColor = [1.0, 1.0, 1.0, 1.0];
+const TEXT_SYSTEM_ERROR: DrawColor = [1.0, 0.2, 0.2, 1.0];

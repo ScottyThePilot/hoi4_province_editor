@@ -1,7 +1,7 @@
 //! Code regarding buttons and interactive elements on the screen
 use graphics::Transformed;
 use graphics::context::Context;
-use graphics::types::Color;
+use graphics::types::Color as DrawColor;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use image::codecs::png::PngDecoder;
 use once_cell::sync::{Lazy, OnceCell};
@@ -333,9 +333,9 @@ impl PlateComponent {
 
 #[derive(Debug, Clone)]
 struct Palette {
-  foreground: Color,
-  background: Color,
-  background_hover: Color
+  foreground: DrawColor,
+  background: DrawColor,
+  background_hover: DrawColor
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -362,7 +362,9 @@ pub enum ButtonId {
   ToolbarViewMode5,
   ToolbarViewMode6,
   ToolbarViewToggleIds,
+  ToolbarViewToggleBoundaries,
   ToolbarViewResetZoom,
+  ToolbarViewFontLicense,
   #[cfg(debug_assertions)]
   ToolbarDebugValidatePixelCounts,
   #[cfg(debug_assertions)]
@@ -405,7 +407,9 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Coastal Provinces Map View Mode", "5", ButtonId::ToolbarViewMode5),
     ("Adjacencies Map View Mode", "6", ButtonId::ToolbarViewMode6),
     ("Toggle Province IDs", "", ButtonId::ToolbarViewToggleIds),
-    ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom)
+    ("Toggle Province Boundaries", "", ButtonId::ToolbarViewToggleBoundaries),
+    ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom),
+    ("View Inconsolata Open Font License", "", ButtonId::ToolbarViewFontLicense)
   ]),
   #[cfg(debug_assertions)]
   ("Debug", &[

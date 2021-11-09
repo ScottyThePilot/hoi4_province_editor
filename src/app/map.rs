@@ -4,6 +4,7 @@ mod bridge;
 mod problems;
 
 use crossbeam::thread::scope;
+use graphics::types::Color as DrawColor;
 use image::{Rgb, RgbImage, Rgba, RgbaImage, Pixel};
 use fxhash::{FxHashMap, FxHashSet};
 use rand::Rng;
@@ -14,6 +15,7 @@ use crate::config::Config;
 use crate::util::fx_hash_map_with_capacity;
 use crate::util::XYIter;
 use crate::util::uord::UOrd;
+use crate::app::colors;
 use crate::app::format::*;
 use crate::error::Error;
 
@@ -28,6 +30,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const CHUNK_SIZE: usize = 1048576;
+const CARDINAL: [Vector2<i32>; 4] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
 
 pub type Color = [u8; 3];
 
@@ -50,14 +53,13 @@ impl Bundle {
     self::problems::analyze(self)
   }
 
-  pub fn image_buffer_land(&self) -> Option<RgbImage> {
+  pub fn image_buffer_mapgen_land(&self) -> Option<RgbImage> {
     self.map.gen_image_buffer(|which| {
-      let kind = self.map.get_province(which).kind;
-      self.config.land_color(kind)
+      self.map.get_province(which).kind.color_mapgen()
     })
   }
 
-  pub fn image_buffer_terrain(&self) -> Option<RgbImage> {
+  pub fn image_buffer_mapgen_terrain(&self) -> Option<RgbImage> {
     self.map.gen_image_buffer(|which| {
       let terrain = &self.map.get_province(which).terrain;
       self.config.terrain_color(terrain)
@@ -74,15 +76,13 @@ impl Bundle {
 
   pub fn texture_buffer_kind(&self) -> RgbaImage {
     self.map.gen_texture_buffer(|which| {
-      let kind = self.map.get_province(which).kind;
-      self.config.kind_color(kind)
+      self.map.get_province(which).kind.color()
     })
   }
 
   pub fn texture_buffer_selective_kind(&self, extents: Extents) -> RgbaImage {
     self.map.gen_texture_buffer_selective(extents, |which| {
-      let kind = self.map.get_province(which).kind;
-      self.config.kind_color(kind)
+      self.map.get_province(which).kind.color()
     })
   }
 
@@ -130,14 +130,14 @@ impl Bundle {
   pub fn texture_buffer_coastal(&self) -> RgbaImage {
     self.map.gen_texture_buffer(|which| {
       let ProvinceData { coastal, kind, .. } = *self.map.get_province(which);
-      self.config.coastal_color(coastal, kind)
+      kind.color_coastal(coastal)
     })
   }
 
   pub fn texture_buffer_selective_coastal(&self, extents: Extents) -> RgbaImage {
     self.map.gen_texture_buffer_selective(extents, |which| {
       let ProvinceData { coastal, kind, .. } = *self.map.get_province(which);
-      self.config.coastal_color(coastal, kind)
+      kind.color_coastal(coastal)
     })
   }
 
@@ -169,6 +169,7 @@ pub struct Map {
   color_buffer: RgbImage,
   province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
   connection_data_map: FxHashMap<UOrd<Color>, Arc<ConnectionData>>,
+  boundaries: FxHashSet<UOrd<Vector2<u32>>>,
   preserved_id_count: Option<u32>
 }
 
@@ -294,6 +295,7 @@ impl Map {
 
   /// Sets the color of a single pixel in `color_buffer`, checks included
   fn put_pixel(&mut self, pos: Vector2<u32>, color: Color) {
+    self.recalculate_boundaries_at(pos);
     if let Some(erased_color) = self.put_pixel_raw(pos, color) {
       self.erase_province_data(erased_color);
     };
@@ -303,6 +305,7 @@ impl Map {
   fn put_many_pixels(&mut self, color: Color, pixels: &[Vector2<u32>]) {
     for &pos in pixels {
       self.put_pixel(pos, color);
+      self.recalculate_boundaries_at(pos);
     };
   }
 
@@ -357,58 +360,91 @@ impl Map {
   /// Returns a hashset of uords describing which provinces are touching each other
   fn calculate_neighbors(&self) -> FxHashSet<UOrd<Color>> {
     let mut neighbors = FxHashSet::default();
-    self.inspect_pixel_pairs(|pos_a, pos_b| {
+    for (pos_a, pos_b) in self.iter_pixel_pairs() {
       let color_a = self.get_color_at(pos_a);
       let color_b = self.get_color_at(pos_b);
       if color_a != color_b {
         neighbors.insert(UOrd::new(color_a, color_b));
       };
-    });
+    };
 
     neighbors
   }
 
   /// Returns a hashset of uords describing lines that would draw borders between each pixel of different color
-  pub fn calculate_boundary_lines(&self) -> FxHashSet<UOrd<Vector2<u32>>> {
-    let mut boundaries = FxHashSet::default();
-    self.inspect_pixel_pairs(|pos_a, pos_b| {
+  pub fn recalculate_all_boundaries(&mut self) {
+    self.boundaries = FxHashSet::default();
+    for (pos_a, pos_b) in self.iter_pixel_pairs() {
       let color_a = self.get_color_at(pos_a);
       let color_b = self.get_color_at(pos_b);
       if color_a != color_b {
-        let boundary = match (pos_a, pos_b) {
-          ([xa, ya], [xb, yb]) if xa == xb => {
-            let y = ya.max(yb);
-            UOrd::new([xa, y], [xa + 1, y])
-          },
-          ([xa, ya], [xb, yb]) if ya == yb => {
-            let x = xa.max(xb);
-            UOrd::new([x, ya], [x, ya + 1])
-          },
-          _ => unreachable!()
-        };
-
-        boundaries.insert(boundary);
-      };
-    });
-
-    boundaries
-  }
-
-  /// Inspects every pair of pixels adjacent to each other, either vertically or horizontally
-  fn inspect_pixel_pairs<F>(&self, mut f: F)
-  where F: FnMut(Vector2<u32>, Vector2<u32>) {
-    let [width, height] = self.dimensions();
-    for pos in XYIter::new(0..width, 0..height) {
-      if pos[0] + 1 < width {
-        let other = [pos[0] + 1, pos[1]];
-        f(pos, other);
-      };
-
-      if pos[1] + 1 < height {
-        let other = [pos[0], pos[1] + 1];
-        f(pos, other);
+        self.boundaries.insert(UOrd::new(pos_a, pos_b));
       };
     };
+  }
+
+  pub fn recalculate_boundaries_extents(&mut self, extents: Extents) {
+    for (pos_a, pos_b) in self.iter_pixel_pairs_extents(extents) {
+      let color_a = self.get_color_at(pos_a);
+      let color_b = self.get_color_at(pos_b);
+      let b = UOrd::new(pos_a, pos_b);
+      if color_a != color_b {
+        self.boundaries.insert(b);
+      } else {
+        self.boundaries.remove(&b);
+      };
+    };
+  }
+
+  pub fn recalculate_boundaries_at(&mut self, pos: Vector2<u32>) {
+    let which = self.get_color_at(pos);
+    for other in self.iter_pixels_adjacent(pos) {
+      let b = UOrd::new(pos, other);
+      if self.get_color_at(other) != which {
+        self.boundaries.insert(b);
+      } else {
+        self.boundaries.remove(&b);
+      };
+    };
+  }
+
+  fn iter_pixels_adjacent(&self, pos: Vector2<u32>) -> impl Iterator<Item = Vector2<u32>> {
+    let [width, height] = self.dimensions();
+    CARDINAL.into_iter()
+      .filter_map(move |diff| {
+        let x = pos[0].wrapping_add(diff[0] as u32);
+        let y = pos[1].wrapping_add(diff[1] as u32);
+        if x < width && y < height {
+          Some([x, y])
+        } else {
+          None
+        }
+      })
+  }
+
+  fn iter_pixel_pairs(&self) -> impl Iterator<Item = (Vector2<u32>, Vector2<u32>)> {
+    let [width, height] = self.dimensions();
+    XYIter::new(0..width, 0..height)
+      .flat_map(move |pos| {
+        let a = (pos[0] + 1 < width).then(|| (pos, [pos[0] + 1, pos[1]]));
+        let b = (pos[1] + 1 < height).then(|| (pos, [pos[0], pos[1] + 1]));
+        Iterator::chain(a.into_iter(), b.into_iter())
+      })
+  }
+
+  fn iter_pixel_pairs_extents(&self, mut extents: Extents) -> impl Iterator<Item = (Vector2<u32>, Vector2<u32>)> {
+    let [width, height] = self.dimensions();
+    extents.lower[0] = extents.lower[0].saturating_sub(1);
+    extents.lower[1] = extents.lower[1].saturating_sub(1);
+    extents.upper[0] = (extents.upper[0] + 1).min(width - 1);
+    extents.upper[1] = (extents.upper[1] + 1).min(height - 1);
+    let [width, height] = extents.upper;
+    XYIter::from_extents(extents)
+      .flat_map(move |pos| {
+        let a = (pos[0] < width).then(|| (pos, [pos[0] + 1, pos[1]]));
+        let b = (pos[1] < height).then(|| (pos, [pos[0], pos[1] + 1]));
+        Iterator::chain(a.into_iter(), b.into_iter())
+      })
   }
 
   /// If the map has any provinces where the type is `Unknown`
@@ -468,6 +504,7 @@ impl Map {
     let which = self.get_color_at(pos);
     assert_ne!(which, color, "Attempted to flood-fill a province when it is already the desired color");
     let (extents, erased) = self.flood_fill_raw(pos, which, color);
+    self.recalculate_boundaries_extents(extents);
 
     if erased {
       self.erase_province_data(which);
@@ -480,7 +517,6 @@ impl Map {
   /// given replacement color at the given position, and then repeats the process
   /// with each pixel in each cardinal direction
   fn flood_fill_raw(&mut self, pos: Vector2<u32>, which: Color, color: Color) -> (Extents, bool) {
-    const CARDINAL: [Vector2<i32>; 4] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
     let mut extents = Extents::new_point(pos);
 
     if let Some(_) = self.put_pixel_raw(pos, color) {
@@ -488,7 +524,7 @@ impl Map {
     };
 
     let [width, height] = self.dimensions();
-    for &diff in CARDINAL.iter() {
+    for diff in CARDINAL {
       let x = pos[0].wrapping_add(diff[0] as u32);
       let y = pos[1].wrapping_add(diff[1] as u32);
       if x < width && y < height && self.get_color_at([x, y]) == which {
@@ -539,11 +575,11 @@ impl Map {
     self.connection_data_map.get(&rel).expect("connection not found with rel")
   }
 
-  fn get_connection_mut(&mut self, rel: UOrd<Color>) -> &mut ConnectionData {
-    let connection = self.connection_data_map.get_mut(&rel)
-      .expect("connection not found with color");
-    Arc::make_mut(connection)
-  }
+  //fn get_connection_mut(&mut self, rel: UOrd<Color>) -> &mut ConnectionData {
+  //  let connection = self.connection_data_map.get_mut(&rel)
+  //    .expect("connection not found with color");
+  //  Arc::make_mut(connection)
+  //}
 
   pub fn get_connection_positions(&self, rel: UOrd<Color>) -> (Vector2<f64>, Vector2<f64>) {
     let connection_data = self.get_connection(rel);
@@ -600,12 +636,30 @@ impl Map {
       .cloned()
   }
 
+  pub fn add_or_remove_connection(&mut self, rel: UOrd<Color>, kind: ConnectionKind) {
+    use std::collections::hash_map::Entry;
+    match self.connection_data_map.entry(rel) {
+      Entry::Vacant(entry) => {
+        entry.insert(Arc::new(ConnectionData::new(kind)));
+      },
+      Entry::Occupied(entry) => if entry.get().kind != kind {
+        Arc::make_mut(entry.into_mut()).kind = kind;
+      } else {
+        entry.remove();
+      }
+    }
+  }
+
   pub fn iter_province_data(&self) -> impl Iterator<Item = (Color, &ProvinceData)> {
     self.province_data_map.iter().map(|(i, d)| (*i, &**d))
   }
 
   pub fn iter_connection_data(&self) -> impl Iterator<Item = (UOrd<Color>, &ConnectionData)> {
     self.connection_data_map.iter().map(|(i, c)| (*i, &**c))
+  }
+
+  pub fn iter_boundaries(&self) -> impl Iterator<Item = UOrd<Vector2<u32>>> + '_ {
+    self.boundaries.iter().map(|b| *b)
   }
 }
 
@@ -672,6 +726,11 @@ impl Extents {
 
   pub fn to_offset_size(self) -> (Vector2<u32>, Vector2<u32>) {
     (self.lower, [self.upper[0] - self.lower[0] + 1, self.upper[1] - self.lower[1] + 1])
+  }
+
+  pub fn contains(self, point: Vector2<u32>) -> bool {
+    self.upper[0] >= point[0] && self.lower[0] <= point[0] &&
+    self.upper[1] >= point[1] && self.lower[1] <= point[1]
   }
 }
 
@@ -813,7 +872,6 @@ impl ProvinceKind {
       // Lakes and Unknown can belong to any continent
       _ => true
     }
-
   }
 
   pub fn correct_continent_id(self, continent: u16) -> u16 {
@@ -821,6 +879,45 @@ impl ProvinceKind {
       ProvinceKind::Land if continent == 0 => 1,
       ProvinceKind::Sea => 0,
       _ => continent
+    }
+  }
+
+  pub fn default_terrain(self) -> String {
+    match self {
+      ProvinceKind::Unknown => "unknown".to_owned(),
+      ProvinceKind::Land => "plains".to_owned(),
+      ProvinceKind::Sea => "ocean".to_owned(),
+      ProvinceKind::Lake => "lakes".to_owned()
+    }
+  }
+
+  pub fn color(self) -> Color {
+    match self {
+      ProvinceKind::Land => [0x0a, 0xae, 0x3d],
+      ProvinceKind::Sea => [0x00, 0x4c, 0x9e],
+      ProvinceKind::Lake => [0x24, 0xab, 0xff],
+      ProvinceKind::Unknown => [0x22, 0x22, 0x22]
+    }
+  }
+
+  pub fn color_mapgen(self) -> Option<Color> {
+    match self {
+      ProvinceKind::Land => Some([150, 68, 192]),
+      ProvinceKind::Sea => Some([5, 20, 18]),
+      ProvinceKind::Lake => Some([80, 240, 120]),
+      ProvinceKind::Unknown => None
+    }
+  }
+
+  pub fn color_coastal(self, coastal: Option<bool>) -> Color {
+    match (coastal, self) {
+      (Some(false), ProvinceKind::Land) => [0x00, 0x33, 0x11],
+      (Some(true), ProvinceKind::Land) => [0x33, 0x99, 0x55],
+      (Some(false), ProvinceKind::Sea) => [0x00, 0x11, 0x33],
+      (Some(true), ProvinceKind::Sea) => [0x33, 0x55, 0x99],
+      (Some(false), ProvinceKind::Lake) => [0x00, 0x33, 0x33],
+      (Some(true), ProvinceKind::Lake) => [0x33, 0x99, 0x99],
+      _ => [0x22, 0x22, 0x22]
     }
   }
 }
@@ -946,6 +1043,14 @@ impl ConnectionKind {
       ConnectionKind::Impassable => AdjacencyKind::Impassable
     }
   }
+
+  pub fn draw_color(self) -> DrawColor {
+    match self {
+      ConnectionKind::Strait => colors::ADJ_LAND,
+      ConnectionKind::Canal => colors::ADJ_SEA,
+      ConnectionKind::Impassable => colors::ADJ_IMPASSABLE
+    }
+  }
 }
 
 fn p4(color: Color) -> [u8; 4] {
@@ -972,12 +1077,12 @@ fn random_color<R: Rng>(rng: &mut R, kind: ProvinceKind) -> Color {
 
 fn random_color_pure(collection: &impl ColorKeyable, kind: ProvinceKind) -> Color {
   let mut rng = rand::thread_rng();
-  let mut color = random_color(&mut rng, kind);
-  while collection.contains_color(color) || color == [0x00; 3] {
-    color = random_color(&mut rng, kind);
+  loop {
+    let color = random_color(&mut rng, kind);
+    if !collection.contains_color(color) && color != [0x00; 3] {
+      return color;
+    };
   };
-
-  color
 }
 
 pub trait ColorKeyable {
@@ -1000,4 +1105,31 @@ impl ColorKeyable for FxHashSet<Color> {
 fn pos_from_offset(so: usize, lo: usize, width: usize) -> Vector2<u32> {
   let o = so + lo;
   [(o % width) as u32, (o / width) as u32]
+}
+
+pub fn boundary_to_line(b: UOrd<Vector2<u32>>) -> UOrd<Vector2<u32>> {
+  match b.into_tuple() {
+    ([xa, ya], [xb, yb]) if xa == xb => {
+      let y = ya.max(yb);
+      UOrd::new([xa, y], [xa + 1, y])
+    },
+    ([xa, ya], [xb, yb]) if ya == yb => {
+      let x = xa.max(xb);
+      UOrd::new([x, ya], [x, ya + 1])
+    },
+    _ => panic!("boundary must be between two pixels, one unit apart")
+  }
+}
+
+/// Takes the average of the colors of the boundary, and then inverts that
+pub fn boundary_color(map: &Map, b: UOrd<Vector2<u32>>) -> Color {
+  let (b1, b2) = b.into_tuple_unordered();
+  let b1 = map.get_color_at(b1);
+  let b2 = map.get_color_at(b2);
+
+  [
+    0xff - b1[0] / 2 - b2[0] / 2,
+    0xff - b1[1] / 2 - b2[1] / 2,
+    0xff - b1[2] / 2 - b2[2] / 2
+  ]
 }

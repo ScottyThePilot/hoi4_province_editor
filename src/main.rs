@@ -59,25 +59,22 @@ fn install_handler() {
   use termcolor::NoColor;
 
   use std::fs::File;
-
-  if cfg!(debug_assertions) {
+  let printer = BacktracePrinter::new()
+    .verbosity(Verbosity::Medium)
+    .lib_verbosity(Verbosity::Medium);
+  std::panic::set_hook(match cfg!(debug_assertions) {
     // Print to console if debug assertions are enabled
-    let out = color_backtrace::default_output_stream();
-    BacktracePrinter::new()
-      .verbosity(Verbosity::Medium)
-      .install(out);
-  } else {
+    true => printer.into_panic_handler(color_backtrace::default_output_stream()),
     // Dump to a file if debug assertions are disabled
-    let printer = BacktracePrinter::new()
-      .lib_verbosity(Verbosity::Medium);
-    std::panic::set_hook(Box::new(move |pi| {
+    false => Box::new(move |pi| {
       let now = Local::now().format("%Y%m%d_%H%M%S");
       match File::create(format!("crash_{}.log", now)) {
-        Ok(file) => if let Err(e) = printer.print_panic_info(pi, &mut NoColor::new(file)) {
-          eprintln!("Error while printing panic: {:?}", e);
+        Ok(file) => match printer.print_panic_info(pi, &mut NoColor::new(file)) {
+          Ok(()) => (),
+          Err(e) => eprintln!("Error while printing panic: {:?}", e)
         },
         Err(e) => eprintln!("Error creating crash log: {:?}", e)
       };
-    }));
-  };
+    })
+  });
 }

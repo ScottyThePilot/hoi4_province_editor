@@ -11,6 +11,18 @@ change-view-mode-on-undo = true
 # Whether coastal provinces should be re-generated upon saving
 generate-coastal-on-save = false
 
+
+
+# These are extra warnings that can be displayed on the map when calculating problems
+# Uncomment to enable them
+
+# [extra-warnings]
+# lone-pixels = true
+# few-shared-borders = true
+# few-shared-borders-threshold = 3
+
+
+
 # You can define custom terrains/biomes below, simply specify the name, the
 # color you want it to be in the editor, and the type of terrain it is (land/sea/lake)
 

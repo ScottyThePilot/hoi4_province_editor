@@ -1,43 +1,73 @@
+use fxhash::FxHashMap;
 use graphics::context::Context;
 use graphics::rectangle::Rectangle;
 use graphics::ellipse::Ellipse;
+use graphics::types::Color as DrawColor;
 use opengl_graphics::GlGraphics;
-use vecmath::{Matrix2x3, Vector2};
+use vecmath::Vector2;
 
 use crate::app::colors;
-use super::{Bundle, Color, Map, Extents};
-use crate::util::{fx_hash_map_with_capacity, XYIter};
+use crate::app::canvas::Camera;
+use super::{Bundle, Color, Map, Extents, boundary_to_line};
+use crate::util::{fx_hash_map_with_capacity, stringify_color, XYIter};
+use crate::util::uord::UOrd;
 
 use std::collections::hash_map::Entry;
 use std::fmt;
 
 
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Problem {
   InvalidXCrossing(Vector2<u32>),
   TooLargeBox(Extents),
   TooFewPixels(u64, Vector2<f64>),
   InvalidWidth,
-  InvalidHeight
+  InvalidHeight,
+  LonePixel(Vector2<u32>),
+  FewSharedBorders(UOrd<Color>, Vec<UOrd<Vector2<u32>>>)
 }
 
 impl Problem {
-  pub fn draw(&self, ctx: Context, display_matrix: Matrix2x3<f64>, gl: &mut GlGraphics) {
+  pub fn draw(&self, ctx: Context, extras: bool, camera: &Camera, gl: &mut GlGraphics) {
     match *self {
       Problem::InvalidXCrossing(pos) => {
         let pos = vec2_u32_to_f64(pos);
-        draw_cross(pos, ctx.transform, display_matrix, gl);
+        draw_cross(pos, ctx, camera, colors::PROBLEM, gl);
       },
       Problem::TooLargeBox(extents) => {
         let lower = vec2_u32_to_f64(extents.lower);
         let upper = vec2_u32_to_f64(extents.upper);
         let upper = vecmath::vec2_add(upper, [1.0; 2]);
-        draw_box([lower, upper], ctx.transform, display_matrix, gl);
+        draw_box([lower, upper], ctx, camera, colors::PROBLEM, gl);
       },
       Problem::TooFewPixels(_, pos) => {
         let pos = vecmath::vec2_add(pos, [0.5; 2]);
-        draw_dot(pos, ctx.transform, display_matrix, gl);
+        draw_dot(pos, ctx, camera, colors::PROBLEM, gl);
+      },
+      Problem::LonePixel(pos) if extras => {
+        let pos = [pos[0] as f64 + 0.5, pos[1] as f64 + 0.5];
+        draw_dot(pos, ctx, camera, colors::WARNING, gl);
+      },
+      Problem::FewSharedBorders(_, ref borders) if extras => {
+        if camera.scale_factor() > 1.0 {
+          // When the zoom is < 100%, draw each border individually
+          for &boundary in borders.iter() {
+            let (b1, b2) = boundary_to_line(boundary)
+              .map(vec2_u32_to_f64)
+              .into_tuple_unordered();
+            draw_line(b1, b2, ctx, camera, colors::WARNING, gl);
+          };
+        } else {
+          // When the zoom is > 100%, just draw a dot here
+          let count = borders.len() * 2;
+          let pos = borders.iter()
+            .flat_map(|&b| b.into_iter())
+            .reduce(vecmath::vec2_add)
+            .expect("infallible");
+          let pos = [pos[0] as f64 / count as f64, pos[1] as f64 / count as f64];
+          draw_dot(pos, ctx, camera, colors::WARNING, gl);
+        };
       },
       _ => ()
     }
@@ -46,7 +76,7 @@ impl Problem {
 
 impl fmt::Display for Problem {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    match self {
+    match *self {
       Problem::InvalidXCrossing(pos) => {
         write!(f, "Invalid X crossing at {:?}", pos)
       },
@@ -61,36 +91,51 @@ impl fmt::Display for Problem {
       },
       Problem::InvalidHeight => {
         write!(f, "Map texture height is not a multiple of 64")
-      }
+      },
+      Problem::LonePixel(pos) => {
+        write!(f, "Lone pixel at {:?}", pos)
+      },
+      Problem::FewSharedBorders(boundary, ref borders) => {
+        let (a, b) = boundary.map(|which| stringify_color(which)).into_tuple();
+        write!(f, "Only {} shared borders between provinces {} and {}", borders.len(), a, b)
+      },
     }
   }
 }
 
-fn draw_cross(pos: Vector2<f64>, transform: Matrix2x3<f64>, display_matrix: Matrix2x3<f64>, gl: &mut GlGraphics) {
-  let [x, y] = vecmath::row_mat2x3_transform_pos2(display_matrix, pos);
-  graphics::line_from_to(colors::PROBLEM, 2.0, [x - 8.0, y - 8.0], [x + 8.0, y + 8.0], transform, gl);
-  graphics::line_from_to(colors::PROBLEM, 2.0, [x - 8.0, y + 8.0], [x + 8.0, y - 8.0], transform, gl);
+fn draw_cross(pos: Vector2<f64>, ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
+  let [x, y] = camera.compute_position(pos);
+  graphics::line_from_to(color, 2.0, [x - 8.0, y - 8.0], [x + 8.0, y + 8.0], ctx.transform, gl);
+  graphics::line_from_to(color, 2.0, [x - 8.0, y + 8.0], [x + 8.0, y - 8.0], ctx.transform, gl);
 }
 
-fn draw_dot(pos: Vector2<f64>, transform: Matrix2x3<f64>, display_matrix: Matrix2x3<f64>, gl: &mut GlGraphics) {
-  let [x, y] = vecmath::row_mat2x3_transform_pos2(display_matrix, pos);
-  Ellipse::new(colors::PROBLEM)
-    .draw_from_to([x - 4.0, y - 4.0], [x + 4.0, y + 4.0], &Default::default(), transform, gl);
+fn draw_dot(pos: Vector2<f64>, ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
+  let [x, y] = camera.compute_position(pos);
+  Ellipse::new(color)
+    .draw_from_to([x - 4.0, y - 4.0], [x + 4.0, y + 4.0], &Default::default(), ctx.transform, gl);
 }
 
-fn draw_box(bounds: [Vector2<f64>; 2], transform: Matrix2x3<f64>, display_matrix: Matrix2x3<f64>, gl: &mut GlGraphics) {
-  let lower = vecmath::row_mat2x3_transform_pos2(display_matrix, bounds[0]);
-  let upper = vecmath::row_mat2x3_transform_pos2(display_matrix, bounds[1]);
-  Rectangle::new_border(colors::PROBLEM, 1.0)
-    .draw_from_to(lower, upper, &Default::default(), transform, gl);
+fn draw_box(bounds: [Vector2<f64>; 2], ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
+  let lower = camera.compute_position(bounds[0]);
+  let upper = camera.compute_position(bounds[1]);
+  Rectangle::new_border(color, 1.0)
+    .draw_from_to(lower, upper, &Default::default(), ctx.transform, gl);
 }
 
-
+fn draw_line(p1: Vector2<f64>, p2: Vector2<f64>, ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
+  let p1 = camera.compute_position(p1);
+  let p2 = camera.compute_position(p2);
+  if camera.within_viewport(p1) || camera.within_viewport(p2) {
+    graphics::line_from_to(color, 2.0, p1, p2, ctx.transform, gl);
+  };
+}
 
 pub fn analyze(bundle: &Bundle) -> Vec<Problem> {
+  let extras = bundle.config.extra_warnings.enabled;
   let [width, height] = bundle.map.dimensions();
   let mut problems = Vec::new();
   let mut province_extents = fx_hash_map_with_capacity::<Color, Extents>(bundle.map.provinces_count());
+  let mut borders: FxHashMap<UOrd<Color>, Vec<UOrd<Vector2<u32>>>> = FxHashMap::default();
 
   for pos in XYIter::new(0..width, 0..height) {
     if pos[1] != height - 1 && is_crossing_at(&bundle.map, pos) {
@@ -106,6 +151,43 @@ pub fn analyze(bundle: &Bundle) -> Vec<Problem> {
         let entry = entry.into_mut();
         *entry = entry.join_point(pos);
       }
+    };
+
+    if extras && bundle.config.extra_warnings.lone_pixels {
+      let color = bundle.map.get_color_at(pos);
+      let alone = bundle.map.iter_pixels_adjacent(pos)
+        .all(|p| bundle.map.get_color_at(p) != color);
+      if alone {
+        problems.push(Problem::LonePixel(pos));
+      };
+    };
+
+    if extras && bundle.config.extra_warnings.few_shared_borders {
+      if pos[0] + 1 < width {
+        let other = [pos[0] + 1, pos[1]];
+        let a = bundle.map.get_color_at(pos);
+        let b = bundle.map.get_color_at(other);
+        let borders = borders.entry(UOrd::new(a, b))
+          .or_insert_with(Vec::new);
+        borders.push(UOrd::new(pos, other));
+      };
+
+      if pos[1] + 1 < height {
+        let other = [pos[0], pos[1] + 1];
+        let a = bundle.map.get_color_at(pos);
+        let b = bundle.map.get_color_at(other);
+        let borders = borders.entry(UOrd::new(a, b))
+          .or_insert_with(Vec::new);
+        borders.push(UOrd::new(pos, other));
+      };
+    };
+  };
+
+  if extras && bundle.config.extra_warnings.few_shared_borders {
+    for (boundary, borders) in borders {
+      if borders.len() <= bundle.config.extra_warnings.few_shared_borders_threshold {
+        problems.push(Problem::FewSharedBorders(boundary, borders));
+      };
     };
   };
 

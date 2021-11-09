@@ -1,5 +1,6 @@
 use fxhash::FxHashSet;
 use graphics::Transformed;
+use graphics::types::Color as DrawColor;
 use graphics::context::Context;
 use graphics::ellipse::Ellipse;
 use image::RgbImage;
@@ -15,6 +16,7 @@ use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use crate::config::Config;
 use crate::font::{self, FONT_SIZE};
 use crate::util::stringify_color;
+use crate::util::uord::UOrd;
 use crate::error::Error;
 
 use std::path::Path;
@@ -34,6 +36,7 @@ pub struct Canvas {
   unknown_terrains: Option<FxHashSet<String>>,
   location: Location,
   show_province_ids: bool,
+  show_province_boundaries: bool,
   pub tool: ToolSettings,
   pub modified: bool,
   pub camera: Camera
@@ -61,6 +64,7 @@ impl Canvas {
       unknown_terrains,
       location,
       show_province_ids,
+      show_province_boundaries: false,
       modified: false,
       camera
     })
@@ -101,69 +105,112 @@ impl Canvas {
     let transform = ctx.transform.append_transform(self.camera.display_matrix);
     graphics::image(&self.texture, transform, gl);
 
-    if self.view_mode == ViewMode::Color && self.camera.scale_factor() > 1.0 && self.show_province_ids {
-      for (_color, province_data) in self.bundle.map.iter_province_data() {
-        let preserved_id = province_data.preserved_id
-          .map_or_else(|| "X".to_owned(), |id| id.to_string());
-        let color = match province_data.kind {
-          ProvinceKind::Land | ProvinceKind::Lake => colors::BLACK,
-          ProvinceKind::Sea | ProvinceKind::Unknown => colors::WHITE
-        };
-
-        let center_of_mass = vecmath::vec2_add([0.5, 0.5], province_data.center_of_mass());
-        let center_of_mass = self.camera.compute_position(center_of_mass);
-        if self.camera.within_viewport(center_of_mass) {
-          let preserved_id = preserved_id.to_string();
-          let offset = [
-            font::get_width_metric_str(&preserved_id) / -2.0,
-            font::get_v_metrics().ascent - font::get_height_metric() / 2.0
-          ];
-          let transform = ctx.transform.trans_pos(center_of_mass).trans_pos(offset);
-          graphics::text(color, FONT_SIZE, &preserved_id, glyph_cache, transform, gl)
-            .expect("unable to draw text");
-        };
-      };
+    if self.camera.scale_factor() > 1.0 && self.show_province_boundaries {
+      self.draw_boundaries(ctx, gl);
     };
 
     if self.view_mode == ViewMode::Adjacencies {
-      let nearest = cursor_pos
-        .map(|cursor_pos| self.camera.relative_position(cursor_pos))
-        .and_then(|pos| self.bundle.map.get_rel_nearest(pos))
-        .map(|(rel, _dist)| rel);
-      for (rel, connection_data) in self.bundle.map.iter_connection_data() {
-        let color = if nearest == Some(rel) {
-          colors::PROBLEM
-        } else {
-          match connection_data.kind {
-            ConnectionKind::Strait => colors::ADJ_LAND,
-            ConnectionKind::Canal => colors::ADJ_SEA,
-            ConnectionKind::Impassable => colors::ADJ_IMPASSABLE
-          }
-        };
+      self.draw_adjacencies(ctx, cursor_pos, gl);
+    } else if self.camera.scale_factor() > 1.0 && self.show_province_ids {
+      self.draw_ids(ctx, glyph_cache, gl);
+    };
 
-        let (center1, center2) = self.bundle.map.get_connection_positions(rel);
-        let center1 = self.camera.compute_position(center1);
-        let center2 = self.camera.compute_position(center2);
+    self.draw_problems(ctx, gl);
 
-        graphics::line_from_to(color, 2.0, center1, center2, ctx.transform, gl);
+    self.draw_tool(ctx, cursor_pos, gl);
+
+    let camera_info = self.camera_info(cursor_pos);
+    let pos = [PADDING[0] + get_sidebar_width(), WINDOW_HEIGHT as f64 - PADDING[1] * 1.25];
+    let transform = ctx.transform.trans_pos(pos);
+    graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
+      .expect("unable to draw text");
+  }
+
+  fn draw_ids(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
+    for (_color, province_data) in self.bundle.map.iter_province_data() {
+      let preserved_id = province_data.preserved_id
+        .map_or_else(|| "X".to_owned(), |id| id.to_string());
+      let color = match self.view_mode {
+        ViewMode::Color | ViewMode::Adjacencies => match province_data.kind {
+          ProvinceKind::Land | ProvinceKind::Lake => colors::BLACK,
+          ProvinceKind::Sea | ProvinceKind::Unknown => colors::WHITE
+        },
+        ViewMode::Kind | ViewMode::Terrain => colors::BLACK,
+        ViewMode::Continent => colors::WHITE,
+        ViewMode::Coastal => match province_data.coastal {
+          Some(true) => colors::BLACK,
+          Some(false) | None => colors::WHITE
+        }
+      };
+
+      let center_of_mass = vecmath::vec2_add([0.5, 0.5], province_data.center_of_mass());
+      let center_of_mass = self.camera.compute_position(center_of_mass);
+      if self.camera.within_viewport(center_of_mass) {
+        let preserved_id = preserved_id.to_string();
+        let offset = [
+          font::get_width_metric_str(&preserved_id) / -2.0,
+          font::get_v_metrics().ascent - font::get_height_metric() / 2.0
+        ];
+        let transform = ctx.transform.trans_pos(center_of_mass).trans_pos(offset);
+        graphics::text(color, FONT_SIZE, &preserved_id, glyph_cache, transform, gl)
+          .expect("unable to draw text");
       };
     };
+  }
 
-    //if self.camera.scale_factor() > 1.0 {
-    //  for &boundary in &self.boundary_lines {
-    //    let (b1, b2) = boundary.into_tuple();
-    //    let b1 = self.camera.compute_position([b1[0] as f64, b1[1] as f64]);
-    //    let b2 = self.camera.compute_position([b2[0] as f64, b2[1] as f64]);
-    //    graphics::line_from_to(colors::BLACK, 1.0, b1, b2, ctx.transform, gl);
-    //  };
-    //};
+  fn draw_adjacencies(&self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+    //let nearest = cursor_pos
+    //  .map(|cursor_pos| self.camera.relative_position(cursor_pos))
+    //  .and_then(|pos| self.bundle.map.get_rel_nearest(pos))
+    //  .map(|(rel, _dist)| rel);
 
-    for problem in self.problems.iter() {
-      problem.draw(ctx, self.camera.display_matrix, gl);
+    if let (Some(sel), Some(kind), Some(cursor_pos)) = (self.tool.adjacency_selection, self.tool.adjacency_brush, cursor_pos) {
+      let color = kind.draw_color();
+      let pos = self.bundle.map.get_province(sel).center_of_mass();
+      let pos = self.camera.compute_position(pos);
+
+      graphics::line_from_to(color, 2.0, pos, cursor_pos, ctx.transform, gl);
     };
 
-    let color = if self.tool.color_brush.is_some() { colors::WHITE } else { colors::WHITE_T };
+    for (rel, connection_data) in self.bundle.map.iter_connection_data() {
+      let color = connection_data.kind.draw_color();
+      let (center1, center2) = self.bundle.map.get_connection_positions(rel);
+      let center1 = self.camera.compute_position(center1);
+      let center2 = self.camera.compute_position(center2);
 
+      graphics::line_from_to(color, 2.0, center1, center2, ctx.transform, gl);
+    };
+  }
+
+  fn draw_boundaries(&self, ctx: Context, gl: &mut GlGraphics) {
+    for boundary in self.bundle.map.iter_boundaries() {
+      let (b1, b2) = boundary_to_line(boundary).into_tuple();
+      let b1 = self.camera.compute_position([b1[0] as f64, b1[1] as f64]);
+      let b2 = self.camera.compute_position([b2[0] as f64, b2[1] as f64]);
+      if self.camera.within_viewport(b1) || self.camera.within_viewport(b2) {
+        let color = match self.view_mode {
+          ViewMode::Color | ViewMode::Adjacencies => {
+            drawable_color(boundary_color(&self.bundle.map, boundary))
+          },
+          ViewMode::Kind | ViewMode::Terrain => colors::BLACK,
+          ViewMode::Continent => colors::WHITE,
+          ViewMode::Coastal => colors::NEUTRAL
+        };
+
+        graphics::line_from_to(color, 1.0, b1, b2, ctx.transform, gl);
+      };
+    };
+  }
+
+  fn draw_problems(&self, ctx: Context, gl: &mut GlGraphics) {
+    let extras = self.bundle.config.extra_warnings.enabled;
+    for problem in self.problems.iter() {
+      problem.draw(ctx, extras, &self.camera, gl);
+    };
+  }
+
+  fn draw_tool(&self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+    let color = if self.tool.color_brush.is_some() { colors::WHITE } else { colors::WHITE_T };
     match (self.view_mode, &self.tool.mode, cursor_pos) {
       (ViewMode::Color, ToolMode::PaintArea, Some(cursor_pos)) => {
         let ellipse = Ellipse::new_border(color, 0.5).resolution(16);
@@ -196,16 +243,14 @@ impl Canvas {
       },
       _ => ()
     };
-
-    let camera_info = self.camera_info(cursor_pos);
-    let pos = [PADDING[0] + get_sidebar_width(), WINDOW_HEIGHT as f64 - PADDING[1] * 1.25];
-    let transform = ctx.transform.trans_pos(pos);
-    graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
-      .expect("unable to draw text");
   }
 
   pub fn toggle_province_ids(&mut self) {
     self.show_province_ids = !self.show_province_ids;
+  }
+
+  pub fn toggle_province_boundaries(&mut self) {
+    self.show_province_boundaries = !self.show_province_boundaries;
   }
 
   pub fn toggle_lasso_snap(&mut self) {
@@ -223,7 +268,7 @@ impl Canvas {
   }
 
   pub fn export_land_map<P: AsRef<Path>>(&self, path: P, alerts: &mut Alerts) {
-    if let Some(image) = self.bundle.image_buffer_land() {
+    if let Some(image) = self.bundle.image_buffer_mapgen_land() {
       let path = path.as_ref();
       match export_image_buffer(path, image) {
         Ok(()) => alerts.push(Ok(format!("Exported land map to {}", path.display()))),
@@ -239,7 +284,7 @@ impl Canvas {
       alerts.push(Err(unknown_terrains));
     } else {
       let path = path.as_ref();
-      let image = self.bundle.image_buffer_terrain().unwrap();
+      let image = self.bundle.image_buffer_mapgen_terrain().unwrap();
       match export_image_buffer(path, image) {
         Ok(()) => alerts.push(Ok(format!("Exported terrain map to {}", path.display()))),
         Err(err) => alerts.push(Err(format!("Error: {}", err)))
@@ -249,6 +294,7 @@ impl Canvas {
 
   pub fn undo(&mut self) {
     if let Some(commit) = self.history.undo(&mut self.bundle.map) {
+      self.bundle.map.recalculate_all_boundaries();
       self.problems.clear();
       if self.bundle.config.change_view_mode_on_undo {
         self.view_mode = commit.view_mode;
@@ -259,6 +305,7 @@ impl Canvas {
 
   pub fn redo(&mut self) {
     if let Some(commit) = self.history.redo(&mut self.bundle.map) {
+      self.bundle.map.recalculate_all_boundaries();
       self.problems.clear();
       if self.bundle.config.change_view_mode_on_undo {
         self.view_mode = commit.view_mode;
@@ -295,7 +342,7 @@ impl Canvas {
     if let (ViewMode::Terrain, Some(unknown_terrains)) = (view_mode, self.unknown_terrains()) {
       alerts.push(Err(unknown_terrains));
     } else if view_mode != self.view_mode {
-      if let ViewMode::Color = self.view_mode {
+      if let ViewMode::Color | ViewMode::Adjacencies = self.view_mode {
         self.cancel_tool();
       };
 
@@ -399,9 +446,7 @@ impl Canvas {
         ToolMode::PaintBucket => self.tool_paint_bucket(cursor_pos),
         ToolMode::Lasso(_) => self.tool_lasso_add_point(cursor_pos)
       },
-      ViewMode::Adjacencies => {
-        // TODO
-      },
+      ViewMode::Adjacencies => self.tool_connect_activate(cursor_pos),
       _ => self.tool_paint_brush(cursor_pos)
     };
   }
@@ -414,6 +459,7 @@ impl Canvas {
   }
 
   pub fn cancel_tool(&mut self) {
+    self.tool.adjacency_selection = None;
     if let ToolMode::Lasso(lasso) = &mut self.tool.mode {
       lasso.drain();
     };
@@ -500,6 +546,19 @@ impl Canvas {
     };
   }
 
+  fn tool_connect_activate(&mut self, cursor_pos: Vector2<f64>) {
+    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
+      let which = self.bundle.map.get_color_at(pos);
+      if let Some(kind) = self.tool.adjacency_brush {
+        if let Some(color) = self.tool.adjacency_selection.take() {
+          self.history.add_or_remove_connection(&mut self.bundle, UOrd::new(which, color), kind);
+        } else {
+          self.tool.adjacency_selection = Some(which);
+        };
+      };
+    };
+  }
+
   pub fn validate_pixel_counts(&self, alerts: &mut Alerts) {
     if self.bundle.map.validate_pixel_counts() {
       alerts.push(Ok("Validation successful"));
@@ -549,34 +608,34 @@ impl Canvas {
   fn brush_info(&self) -> String {
     match self.view_mode {
       ViewMode::Color => match self.tool.color_brush {
-        Some(color) => format!("color {}", stringify_color(color)),
-        None => "color (no brush)".to_owned()
+        Some(color) => format!("Color {}", stringify_color(color)),
+        None => "Color (No Brush)".to_owned()
       },
       ViewMode::Kind => match self.tool.kind_brush {
-        Some(kind) => format!("type {}", kind.to_str().to_uppercase()),
-        None => "type (no brush)".to_owned()
+        Some(kind) => format!("Type {}", kind.to_str().to_uppercase()),
+        None => "Type (No Brush)".to_owned()
       },
       ViewMode::Terrain => match &self.tool.terrain_brush {
-        Some(terrain) => format!("terrain {}", terrain.to_uppercase()),
-        None => "terrain (no brush)".to_owned()
+        Some(terrain) => format!("Terrain {}", terrain.to_uppercase()),
+        None => "Terrain (No Brush)".to_owned()
       },
       ViewMode::Continent => match self.tool.continent_brush {
-        Some(continent) => format!("continent {}", continent),
-        None => "continent (no brush)".to_owned()
+        Some(continent) => format!("Continent {}", continent),
+        None => "Continent (No Brush)".to_owned()
       },
-      ViewMode::Coastal => "coastal".to_owned(),
+      ViewMode::Coastal => "Coastal".to_owned(),
       ViewMode::Adjacencies => match self.tool.adjacency_brush {
-        Some(connection) => format!("adjacencies {}", connection.to_str().to_uppercase()),
-        None => "adjacencies (no brush)".to_owned()
+        Some(connection) => format!("Adjacencies {}", connection.to_str().to_uppercase()),
+        None => "Adjacencies (No Brush)".to_owned()
       }
     }
   }
 
   fn brush_mask_info(&self) -> String {
-    if let ViewMode::Color = self.view_mode {
+    if self.view_mode == ViewMode::Color {
       match self.tool.brush_mask {
-        Some(brush_mask) => format!("mask {}", brush_mask.to_str()),
-        None => "no mask".to_owned()
+        Some(brush_mask) => format!("Mask {}", brush_mask.to_str().to_uppercase()),
+        None => "No Mask".to_owned()
       }
     } else {
       String::new()
@@ -620,6 +679,7 @@ pub struct ToolSettings {
   pub terrain_brush: Option<String>,
   pub continent_brush: Option<u16>,
   pub adjacency_brush: Option<ConnectionKind>,
+  pub adjacency_selection: Option<Color>,
   pub brush_mask: Option<BrushMask>,
   pub lasso_snap: bool,
   pub radius: f64,
@@ -644,6 +704,7 @@ impl Default for ToolSettings {
       terrain_brush: None,
       continent_brush: None,
       adjacency_brush: None,
+      adjacency_selection: None,
       brush_mask: None,
       lasso_snap: false,
       radius: 8.0,
@@ -652,7 +713,7 @@ impl Default for ToolSettings {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ToolMode {
   PaintArea,
   PaintBucket,
@@ -665,7 +726,7 @@ impl ToolMode {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Lasso(pub Vec<Vector2<f64>>);
 
 impl Lasso {
@@ -789,35 +850,39 @@ impl Camera {
   }
 
   /// Converts a point from camera space to map space
-  fn relative_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
+  pub(super) fn relative_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
     vecmath::row_mat2x3_transform_pos2(self.display_matrix_inv(), pos)
   }
 
-  fn relative_position_int(&self, pos: Vector2<f64>) -> Option<Vector2<u32>> {
+  pub(super) fn relative_position_int(&self, pos: Vector2<f64>) -> Option<Vector2<u32>> {
     let pos = self.relative_position(pos);
     self.within_dimensions(pos)
       .then(|| [pos[0] as u32, pos[1] as u32])
   }
 
   /// Converts from map space to camera space
-  fn compute_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
+  pub(super) fn compute_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
     vecmath::row_mat2x3_transform_pos2(self.display_matrix, pos)
   }
 
+  #[inline]
   fn display_matrix_inv(&self) -> Matrix2x3<f64> {
     vecmath::mat2x3_inv(self.display_matrix)
   }
 
+  #[inline]
   pub fn scale_factor(&self) -> f64 {
     (self.display_matrix[0][0] + self.display_matrix[1][1]) / 2.0
   }
 
-  fn within_dimensions(&self, pos: Vector2<f64>) -> bool {
+  #[inline]
+  pub(super) fn within_dimensions(&self, pos: Vector2<f64>) -> bool {
     0.0 <= pos[0] && pos[0] < self.texture_size[0] &&
     0.0 <= pos[1] && pos[1] < self.texture_size[1]
   }
 
-  fn within_viewport(&self, pos: Vector2<f64>) -> bool {
+  #[inline]
+  pub(super) fn within_viewport(&self, pos: Vector2<f64>) -> bool {
     0.0 <= pos[0] && pos[0] < WINDOW_WIDTH as f64 &&
     0.0 <= pos[1] && pos[1] < WINDOW_HEIGHT as f64
   }
@@ -825,4 +890,9 @@ impl Camera {
 
 fn export_image_buffer<P: AsRef<Path>>(path: P, image: RgbImage) -> Result<(), Error> {
   super::map::write_rgb_bmp_image(BufWriter::new(File::create(path)?), &image)
+}
+
+#[inline]
+fn drawable_color(color: Color) -> DrawColor {
+  [color[0] as f32 / 255.0, color[1] as f32 / 255.0, color[2] as f32 / 255.0, 1.0]
 }

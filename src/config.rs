@@ -14,18 +14,15 @@ use std::fs;
 const DEFAULT_CONFIG: &[u8] = include_bytes!("../assets/hoi4pe_config_default.toml");
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "kebab-case")]
 pub struct Config {
-  #[serde(alias = "max-undo-states")]
   pub max_undo_states: usize,
-  #[serde(alias = "preserve-ids")]
   pub preserve_ids: bool,
-  #[serde(alias = "change-view-mode-on-undo")]
   pub change_view_mode_on_undo: bool,
-  #[serde(alias = "generate-coastal-on-save")]
   pub generate_coastal_on_save: bool,
   #[serde(alias = "terrain")]
-  pub terrains: FxHashMap<String, Terrain>
+  pub terrains: FxHashMap<String, Terrain>,
+  pub extra_warnings: ExtraWarnings
 }
 
 impl Config {
@@ -41,6 +38,7 @@ impl Config {
     };
 
     add_default_terrains(&mut config.terrains);
+
     Ok(config)
   }
 
@@ -88,45 +86,6 @@ impl Config {
       Some(ConnectionKind::Impassable) => ConnectionKind::Strait,
     }
   }
-
-  pub fn kind_color(&self, kind: impl Into<ProvinceKind>) -> Color {
-    match kind.into() {
-      ProvinceKind::Land => [0x0a, 0xae, 0x3d],
-      ProvinceKind::Sea => [0x00, 0x4c, 0x9e],
-      ProvinceKind::Lake => [0x24, 0xab, 0xff],
-      ProvinceKind::Unknown => [0x22, 0x22, 0x22]
-    }
-  }
-
-  pub fn land_color(&self, kind: impl Into<ProvinceKind>) -> Option<Color> {
-    match kind.into() {
-      ProvinceKind::Land => Some([150, 68, 192]),
-      ProvinceKind::Sea => Some([5, 20, 18]),
-      ProvinceKind::Lake => Some([80, 240, 120]),
-      ProvinceKind::Unknown => None
-    }
-  }
-
-  pub fn coastal_color(&self, coastal: Option<bool>, kind: impl Into<ProvinceKind>) -> Color {
-    match (coastal, kind.into()) {
-      (Some(false), ProvinceKind::Land) => [0x00, 0x33, 0x11],
-      (Some(true), ProvinceKind::Land) => [0x33, 0x99, 0x55],
-      (Some(false), ProvinceKind::Sea) => [0x00, 0x11, 0x33],
-      (Some(true), ProvinceKind::Sea) => [0x33, 0x55, 0x99],
-      (Some(false), ProvinceKind::Lake) => [0x00, 0x33, 0x33],
-      (Some(true), ProvinceKind::Lake) => [0x33, 0x99, 0x99],
-      _ => [0x22, 0x22, 0x22]
-    }
-  }
-
-  pub fn default_terrain(&self, kind: impl Into<ProvinceKind>) -> String {
-    match kind.into() {
-      ProvinceKind::Unknown => "unknown".to_owned(),
-      ProvinceKind::Land => "plains".to_owned(),
-      ProvinceKind::Sea => "ocean".to_owned(),
-      ProvinceKind::Lake => "lakes".to_owned()
-    }
-  }
 }
 
 impl Default for Config {
@@ -136,7 +95,13 @@ impl Default for Config {
       preserve_ids: false,
       change_view_mode_on_undo: true,
       generate_coastal_on_save: false,
-      terrains: default_terrains()
+      terrains: default_terrains(),
+      extra_warnings: ExtraWarnings {
+        enabled: false,
+        lone_pixels: false,
+        few_shared_borders: false,
+        few_shared_borders_threshold: 4
+      }
     }
   }
 }
@@ -147,6 +112,27 @@ pub struct Terrain {
   pub color: Color,
   #[serde(rename = "type")]
   pub kind: ProvinceKind
+}
+
+#[derive(Debug, Copy, Clone, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct ExtraWarnings {
+  #[serde(skip_deserializing)]
+  pub enabled: bool,
+  pub lone_pixels: bool,
+  pub few_shared_borders: bool,
+  pub few_shared_borders_threshold: usize
+}
+
+impl Default for ExtraWarnings {
+  fn default() -> ExtraWarnings {
+    ExtraWarnings {
+      enabled: true,
+      lone_pixels: true,
+      few_shared_borders: true,
+      few_shared_borders_threshold: 3
+    }
+  }
 }
 
 #[derive(Error, Debug)]

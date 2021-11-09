@@ -203,15 +203,17 @@ fn construct_map_data(
 
   let id_data = config.preserve_ids.then(|| preserved_id_count );
 
-  Bundle {
-    map: Map {
-      color_buffer,
-      province_data_map,
-      connection_data_map,
-      preserved_id_count: id_data
-    },
-    config
-  }
+  let mut map = Map {
+    color_buffer,
+    province_data_map,
+    connection_data_map,
+    boundaries: FxHashSet::default(),
+    preserved_id_count: id_data
+  };
+
+  map.recalculate_all_boundaries();
+
+  Bundle { map, config }
 }
 
 pub(super) fn recolor_everything(

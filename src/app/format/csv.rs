@@ -9,7 +9,6 @@ pub const LINE_BREAK: &str = "\r\n";
 pub const SEPARATOR: char = ';';
 
 fn split_line<const COLUMNS: usize>(line: &str) -> Option<[String; COLUMNS]> {
-  use std::convert::TryInto;
   let line = line.split(SEPARATOR)
     .map(str::to_owned)
     .take(COLUMNS)

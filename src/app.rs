@@ -24,25 +24,26 @@ use std::fmt;
 use std::env;
 
 pub mod colors {
-  use graphics::types::Color;
+  use graphics::types::Color as DrawColor;
 
-  pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
-  pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
-  pub const WHITE_T: Color = [1.0, 1.0, 1.0, 0.25];
-  pub const WHITE_TT: Color = [1.0, 1.0, 1.0, 0.015625];
-  pub const PROBLEM: Color = [0.875, 0.0, 0.0, 1.0];
-  pub const NEUTRAL: Color = [0.25, 0.25, 0.25, 1.0];
-  pub const OVERLAY_T: Color = [0.0, 0.0, 0.0, 0.5];
+  pub const BLACK: DrawColor = [0.0, 0.0, 0.0, 1.0];
+  pub const WHITE: DrawColor = [1.0, 1.0, 1.0, 1.0];
+  pub const WHITE_T: DrawColor = [1.0, 1.0, 1.0, 0.25];
+  pub const WHITE_TT: DrawColor = [1.0, 1.0, 1.0, 0.015625];
+  pub const PROBLEM: DrawColor = [0.875, 0.0, 0.0, 1.0];
+  pub const WARNING: DrawColor = [0.875, 0.5, 0.0, 1.0];
+  pub const NEUTRAL: DrawColor = [0.25, 0.25, 0.25, 1.0];
+  pub const OVERLAY_T: DrawColor = [0.0, 0.0, 0.0, 0.5];
 
-  pub const ADJ_LAND: Color = [0.2, 0.6, 1.0/3.0, 1.0];
-  pub const ADJ_SEA: Color = [0.2, 1.0/3.0, 0.6, 1.0];
-  pub const ADJ_IMPASSABLE: Color = [0.0, 0.0, 0.0, 1.0];
+  pub const ADJ_LAND: DrawColor = [0.2, 0.6, 1.0/3.0, 1.0];
+  pub const ADJ_SEA: DrawColor = [0.2, 1.0/3.0, 0.6, 1.0];
+  pub const ADJ_IMPASSABLE: DrawColor = [0.0, 0.0, 0.0, 1.0];
 
-  pub const BUTTON: Color = [0.1875, 0.1875, 0.1875, 1.0];
-  pub const BUTTON_HOVER: Color = [0.3750, 0.3750, 0.3750, 1.0];
+  pub const BUTTON: DrawColor = [0.1875, 0.1875, 0.1875, 1.0];
+  pub const BUTTON_HOVER: DrawColor = [0.3750, 0.3750, 0.3750, 1.0];
 
-  pub const BUTTON_TOOLBAR: Color = [0.1250, 0.1250, 0.1250, 1.0];
-  pub const BUTTON_TOOLBAR_HOVER: Color = [0.3125, 0.3125, 0.3125, 1.0];
+  pub const BUTTON_TOOLBAR: DrawColor = [0.1250, 0.1250, 0.1250, 1.0];
+  pub const BUTTON_TOOLBAR_HOVER: DrawColor = [0.3125, 0.3125, 0.3125, 1.0];
 }
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
@@ -59,7 +60,7 @@ impl EventHandler for App {
   fn new(_gl: &mut GlGraphics) -> Self {
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
     let mut glyph_cache = GlyphCache::from_font(font::get_font(), (), texture_settings);
-    glyph_cache.preload_printable_ascii(10).expect("unable to preload font glyphs");
+    glyph_cache.preload_printable_ascii(font::FONT_SIZE).expect("unable to preload font glyphs");
     let interface = self::interface::construct_interface();
 
     App {
@@ -117,6 +118,9 @@ impl EventHandler for App {
       (Some(canvas), true, Key::P) if mods.shift => canvas.display_problems(&mut self.alerts),
       (Some(canvas), true, Key::M) if mods.shift => canvas.tool.cycle_brush_mask(),
       (Some(canvas), true, Key::H) => canvas.camera.reset(),
+      (Some(canvas), true, Key::A) => canvas.set_tool_mode(ToolMode::PaintArea),
+      (Some(canvas), true, Key::B) => canvas.set_tool_mode(ToolMode::PaintBucket),
+      (Some(canvas), true, Key::L) => canvas.set_tool_mode(ToolMode::new_lasso()),
       (Some(_), true, Key::D1) => self.action_change_view_mode(ViewMode::Color),
       (Some(_), true, Key::D2) => self.action_change_view_mode(ViewMode::Kind),
       (Some(_), true, Key::D3) => self.action_change_view_mode(ViewMode::Terrain),
@@ -145,8 +149,8 @@ impl EventHandler for App {
   fn on_mouse_position(&mut self, pos: Vector2<f64>) {
     self.interface.on_mouse_position(pos);
     if let Some(canvas) = &mut self.canvas {
-      // Mouse movement should not activate the tool for the paint bucket and lasso tools
-      if self.painting && matches!(canvas.tool.mode, ToolMode::PaintArea) {
+      if self.painting && canvas.tool.mode == ToolMode::PaintArea && canvas.view_mode() != ViewMode::Adjacencies {
+        // Mouse movement should not activate the tool for the paint bucket and lasso tools
         canvas.activate_tool(pos);
       };
     };
@@ -218,6 +222,7 @@ impl App {
   pub fn action_interface_button(&mut self, id: ButtonId) {
     use self::interface::ButtonId::*;
     match (&mut self.canvas, id) {
+
       (_, ToolbarFileOpenFileArchive) => self.action_open_map(true),
       (_, ToolbarFileOpenFolder) => self.action_open_map(false),
       (Some(_), ToolbarFileSave) => self.action_save_map(),
@@ -240,7 +245,9 @@ impl App {
       (Some(_), ToolbarViewMode5) => self.action_change_view_mode(ViewMode::Coastal),
       (Some(_), ToolbarViewMode6) => self.action_change_view_mode(ViewMode::Adjacencies),
       (Some(canvas), ToolbarViewToggleIds) => canvas.toggle_province_ids(),
+      (Some(canvas), ToolbarViewToggleBoundaries) => canvas.toggle_province_boundaries(),
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
+      (_, ToolbarViewFontLicense) => self.handle_result_none(font::view_font_license()),
       (Some(canvas), SidebarToolPaintArea) => canvas.set_tool_mode(ToolMode::PaintArea),
       (Some(canvas), SidebarToolPaintBucket) => canvas.set_tool_mode(ToolMode::PaintBucket),
       (Some(canvas), SidebarToolLasso) => canvas.set_tool_mode(ToolMode::new_lasso()),
@@ -255,7 +262,11 @@ impl App {
   fn action_activate_tool(&mut self, pos: Vector2<f64>) {
     self.painting = true;
     if let Some(canvas) = &mut self.canvas {
-      canvas.activate_tool(pos);
+      if canvas.view_mode() == ViewMode::Adjacencies && canvas.tool.adjacency_brush.is_none() {
+        self.alerts.push(Err("No Adjacency brush selected"));
+      } else {
+        canvas.activate_tool(pos);
+      };
     };
   }
 

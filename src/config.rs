@@ -4,9 +4,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::app::map::Color;
-use crate::app::map::ConnectionKind;
 use crate::app::map::ProvinceKind;
-use crate::app::format::DefinitionKind;
 use crate::util::fx_hash_map_with_capacity;
 
 use std::fs;
@@ -50,16 +48,6 @@ impl Config {
     self.terrains.get(terrain).map(|t| t.kind)
   }
 
-  pub fn cycle_kinds<P>(&self, kind: Option<P>) -> DefinitionKind
-  where P: Into<ProvinceKind> {
-    match kind.map(P::into) {
-      Some(ProvinceKind::Land) => DefinitionKind::Sea,
-      Some(ProvinceKind::Sea) => DefinitionKind::Lake,
-      Some(ProvinceKind::Lake) => DefinitionKind::Land,
-      Some(ProvinceKind::Unknown) | None => DefinitionKind::Land
-    }
-  }
-
   pub fn cycle_terrains(&self, terrain: Option<&str>) -> String {
     if let Some(target_terrain) = terrain {
       for (terrain, next_terrain) in self.terrains.keys().tuple_windows() {
@@ -72,19 +60,6 @@ impl Config {
     self.terrains.keys().next()
       .expect("infallible")
       .clone()
-  }
-
-  pub fn cycle_continents(&self, continent: Option<u16>) -> u16 {
-    continent.map_or(0, |continent| (continent + 1) % 16)
-  }
-
-  pub fn cycle_connection(&self, connection_kind: Option<ConnectionKind>) -> ConnectionKind {
-    match connection_kind {
-      None => ConnectionKind::Strait,
-      Some(ConnectionKind::Strait) => ConnectionKind::Canal,
-      Some(ConnectionKind::Canal) => ConnectionKind::Impassable,
-      Some(ConnectionKind::Impassable) => ConnectionKind::Strait,
-    }
   }
 }
 

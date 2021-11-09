@@ -387,7 +387,7 @@ impl Canvas {
       },
       ViewMode::Kind => {
         let kind = self.tool.kind_brush;
-        let kind = self.bundle.config.cycle_kinds(kind);
+        let kind = cycle_kinds(kind);
         self.tool.kind_brush = Some(kind);
         alerts.push(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
       },
@@ -399,14 +399,14 @@ impl Canvas {
       },
       ViewMode::Continent => {
         let continent = self.tool.continent_brush;
-        let continent = self.bundle.config.cycle_continents(continent);
+        let continent = cycle_continents(continent);
         self.tool.continent_brush = Some(continent);
         alerts.push(Ok(format!("Brush set to continent {}", continent)));
       },
       ViewMode::Coastal => (),
       ViewMode::Adjacencies => {
         let adjacency_kind = self.tool.adjacency_brush;
-        let adjacency_kind = self.bundle.config.cycle_connection(adjacency_kind);
+        let adjacency_kind = cycle_connection(adjacency_kind);
         self.tool.adjacency_brush = Some(adjacency_kind);
         alerts.push(Ok(format!("Brush set to adjacencies {}", adjacency_kind.to_str().to_uppercase())));
       }
@@ -909,4 +909,27 @@ fn export_image_buffer<P: AsRef<Path>>(path: P, image: RgbImage) -> Result<(), E
 #[inline]
 fn drawable_color(color: Color) -> DrawColor {
   [color[0] as f32 / 255.0, color[1] as f32 / 255.0, color[2] as f32 / 255.0, 1.0]
+}
+
+fn cycle_kinds<P>(kind: Option<P>) -> DefinitionKind
+where P: Into<ProvinceKind> {
+  match kind.map(P::into) {
+    Some(ProvinceKind::Land) => DefinitionKind::Sea,
+    Some(ProvinceKind::Sea) => DefinitionKind::Lake,
+    Some(ProvinceKind::Lake) => DefinitionKind::Land,
+    Some(ProvinceKind::Unknown) | None => DefinitionKind::Land
+  }
+}
+
+fn cycle_continents(continent: Option<u16>) -> u16 {
+  continent.map_or(0, |continent| (continent + 1) % 16)
+}
+
+fn cycle_connection(connection_kind: Option<ConnectionKind>) -> ConnectionKind {
+  match connection_kind {
+    None => ConnectionKind::Strait,
+    Some(ConnectionKind::Strait) => ConnectionKind::Canal,
+    Some(ConnectionKind::Canal) => ConnectionKind::Impassable,
+    Some(ConnectionKind::Impassable) => ConnectionKind::Strait,
+  }
 }

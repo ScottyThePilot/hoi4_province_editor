@@ -131,11 +131,11 @@ impl EventHandler for App {
     };
   }
 
-  fn on_mouse(&mut self, button: MouseButton, state: bool, _mods: KeyMods, pos: Vector2<f64>) {
+  fn on_mouse(&mut self, button: MouseButton, state: bool, mods: KeyMods, pos: Vector2<f64>) {
     match (&mut self.canvas, state, button) {
       (_, true, MouseButton::Left) => match self.interface.on_mouse_click(pos) {
         Ok(id) => self.action_interface_button(id),
-        Err(true) => self.action_activate_tool(pos),
+        Err(true) => self.action_activate_tool(pos, mods),
         Err(false) => ()
       },
       (Some(_), false, MouseButton::Left) => self.action_deactivate_tool(),
@@ -146,12 +146,12 @@ impl EventHandler for App {
     };
   }
 
-  fn on_mouse_position(&mut self, pos: Vector2<f64>) {
+  fn on_mouse_position(&mut self, pos: Vector2<f64>, mods: KeyMods) {
     self.interface.on_mouse_position(pos);
     if let Some(canvas) = &mut self.canvas {
       if self.painting && canvas.tool.mode == ToolMode::PaintArea && canvas.view_mode() != ViewMode::Adjacencies {
         // Mouse movement should not activate the tool for the paint bucket and lasso tools
-        canvas.activate_tool(pos);
+        canvas.activate_tool(pos, mods.shift);
       };
     };
   }
@@ -259,13 +259,13 @@ impl App {
     };
   }
 
-  fn action_activate_tool(&mut self, pos: Vector2<f64>) {
+  fn action_activate_tool(&mut self, pos: Vector2<f64>, mods: KeyMods) {
     self.painting = true;
     if let Some(canvas) = &mut self.canvas {
       if canvas.view_mode() == ViewMode::Adjacencies && canvas.tool.adjacency_brush.is_none() {
         self.alerts.push(Err("No Adjacency brush selected"));
       } else {
-        canvas.activate_tool(pos);
+        canvas.activate_tool(pos, mods.shift);
       };
     };
   }

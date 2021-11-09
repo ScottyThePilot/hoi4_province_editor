@@ -15,7 +15,7 @@ pub trait EventHandler: Sized {
   fn on_update(&mut self, dt: f32);
   fn on_key(&mut self, _key: Key, _state: bool, _mods: KeyMods, _pos: Option<Vector2<f64>>) {}
   fn on_mouse(&mut self, _button: MouseButton, _state: bool, _mods: KeyMods, _pos: Vector2<f64>) {}
-  fn on_mouse_position(&mut self, _pos: Vector2<f64>) {}
+  fn on_mouse_position(&mut self, _pos: Vector2<f64>, _mods: KeyMods) {}
   fn on_mouse_relative(&mut self, _rel: Vector2<f64>) {}
   fn on_mouse_scroll(&mut self, _s: Vector2<f64>, _mods: KeyMods, _pos: Vector2<f64>) {}
   fn on_file_drop(&mut self, _path: PathBuf) {}
@@ -61,7 +61,7 @@ pub fn launch<H: EventHandler>(window: &mut GlutinWindow, gl: &mut GlGraphics) {
         },
         Input::Move(Motion::MouseCursor(pos)) => {
           cursor_pos = Some(pos);
-          event_handler.on_mouse_position(pos);
+          event_handler.on_mouse_position(pos, mods);
         },
         Input::Move(Motion::MouseRelative(rel)) => {
           event_handler.on_mouse_relative(rel);

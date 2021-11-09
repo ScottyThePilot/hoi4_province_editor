@@ -453,11 +453,11 @@ impl Canvas {
   }
 
   /// Activates the tool, ie, performs a left-click action
-  pub fn activate_tool(&mut self, cursor_pos: Vector2<f64>) {
+  pub fn activate_tool(&mut self, cursor_pos: Vector2<f64>, modifier: bool) {
     match self.view_mode {
       ViewMode::Color => match self.tool.mode {
         ToolMode::PaintArea => self.tool_paint_brush(cursor_pos),
-        ToolMode::PaintBucket => self.tool_paint_bucket(cursor_pos),
+        ToolMode::PaintBucket => self.tool_paint_bucket(cursor_pos, modifier),
         ToolMode::Lasso(_) => self.tool_lasso_add_point(cursor_pos)
       },
       ViewMode::Adjacencies => self.tool_connect_activate(cursor_pos),
@@ -548,10 +548,16 @@ impl Canvas {
     self.history.finish_last_step(&self.bundle.map);
   }
 
-  fn tool_paint_bucket(&mut self, cursor_pos: Vector2<f64>) {
+  fn tool_paint_bucket(&mut self, cursor_pos: Vector2<f64>, fill_all: bool) {
     if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       if let (Some(fill_color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
-        if let Some(extents) = self.history.paint_pixel_bucket(&mut self.bundle, pos, fill_color, self.tool.brush_mask) {
+        let result = if fill_all {
+          self.history.paint_entire_province(&mut self.bundle, pos, fill_color)
+        } else {
+          self.history.paint_pixel_bucket(&mut self.bundle, pos, fill_color, self.tool.brush_mask)
+        };
+
+        if let Some(extents) = result {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);

@@ -159,11 +159,7 @@ impl Canvas {
   }
 
   fn draw_adjacencies(&self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
-    //let nearest = cursor_pos
-    //  .map(|cursor_pos| self.camera.relative_position(cursor_pos))
-    //  .and_then(|pos| self.bundle.map.get_rel_nearest(pos))
-    //  .map(|(rel, _dist)| rel);
-
+    // Draw the adjacency the user is currently creating
     if let (Some(sel), Some(kind), Some(cursor_pos)) = (self.tool.adjacency_selection, self.tool.adjacency_brush, cursor_pos) {
       let color = kind.draw_color();
       let pos = self.bundle.map.get_province(sel).center_of_mass();
@@ -172,18 +168,36 @@ impl Canvas {
       graphics::line_from_to(color, 2.0, pos, cursor_pos, ctx.transform, gl);
     };
 
+    // Draw all adjacencies as lines between the centers of every province (except for impassable)
     for (rel, connection_data) in self.bundle.map.iter_connection_data() {
-      let color = connection_data.kind.draw_color();
-      let (center1, center2) = self.bundle.map.get_connection_positions(rel);
-      let center1 = self.camera.compute_position(center1);
-      let center2 = self.camera.compute_position(center2);
+      if connection_data.kind != ConnectionKind::Impassable {
+        let color = connection_data.kind.draw_color();
+        let (center1, center2) = self.bundle.map.get_connection_positions(rel);
+        let center1 = self.camera.compute_position(center1);
+        let center2 = self.camera.compute_position(center2);
 
-      graphics::line_from_to(color, 2.0, center1, center2, ctx.transform, gl);
+        graphics::line_from_to(color, 2.0, center1, center2, ctx.transform, gl);
+      };
+    };
+
+    // Draw impassible adjacencies as black boundaries
+    for (boundary, is_special) in self.bundle.map.iter_boundaries() {
+      if is_special {
+        let rel = boundary.map(|pos| self.bundle.map.get_color_at(pos));
+        if self.bundle.map.get_connection(rel).kind == ConnectionKind::Impassable {
+          let (b1, b2) = boundary_to_line(boundary).into_tuple();
+          let b1 = self.camera.compute_position([b1[0] as f64, b1[1] as f64]);
+          let b2 = self.camera.compute_position([b2[0] as f64, b2[1] as f64]);
+          if self.camera.within_viewport(b1) || self.camera.within_viewport(b2) {
+            graphics::line_from_to(colors::ADJ_IMPASSABLE, 2.0, b1, b2, ctx.transform, gl);
+          };
+        };
+      };
     };
   }
 
   fn draw_boundaries(&self, ctx: Context, gl: &mut GlGraphics) {
-    for boundary in self.bundle.map.iter_boundaries() {
+    for (boundary, _is_special) in self.bundle.map.iter_boundaries() {
       let (b1, b2) = boundary_to_line(boundary).into_tuple();
       let b1 = self.camera.compute_position([b1[0] as f64, b1[1] as f64]);
       let b2 = self.camera.compute_position([b2[0] as f64, b2[1] as f64]);

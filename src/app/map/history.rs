@@ -344,20 +344,17 @@ impl History {
       match bundle.map.connection_data_map.entry(rel) {
         Entry::Vacant(entry) => {
           entry.insert(Arc::new(ConnectionData::new(kind)));
-          self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
-          true
         },
-        Entry::Occupied(entry) => {
-          if entry.get().kind == kind {
-            entry.remove();
-          } else {
-            Arc::make_mut(entry.into_mut()).kind = kind;
-          };
-
-          self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
-          true
+        Entry::Occupied(entry) => if entry.get().kind == kind {
+          entry.remove();
+        } else {
+          Arc::make_mut(entry.into_mut()).kind = kind;
         }
-      }
+      };
+
+      bundle.map.recalculate_specialness();
+      self.push_map_state_bufferless(&bundle.map, ViewMode::Adjacencies);
+      true
     } else {
       false
     }

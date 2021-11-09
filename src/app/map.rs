@@ -169,7 +169,7 @@ pub struct Map {
   color_buffer: RgbImage,
   province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
   connection_data_map: FxHashMap<UOrd<Color>, Arc<ConnectionData>>,
-  boundaries: FxHashSet<UOrd<Vector2<u32>>>,
+  boundaries: FxHashMap<UOrd<Vector2<u32>>, bool>,
   preserved_id_count: Option<u32>
 }
 
@@ -371,25 +371,25 @@ impl Map {
     neighbors
   }
 
-  /// Returns a hashset of uords describing lines that would draw borders between each pixel of different color
   pub fn recalculate_all_boundaries(&mut self) {
-    self.boundaries = FxHashSet::default();
+    self.boundaries = FxHashMap::default();
     for (pos_a, pos_b) in self.iter_pixel_pairs() {
-      let color_a = self.get_color_at(pos_a);
-      let color_b = self.get_color_at(pos_b);
-      if color_a != color_b {
-        self.boundaries.insert(UOrd::new(pos_a, pos_b));
+      let b = UOrd::new(pos_a, pos_b);
+      let rel = b.map(|pos| self.get_color_at(pos));
+      if rel.is_distinct() {
+        let is_special = self.has_connection(rel);
+        self.boundaries.insert(b, is_special);
       };
     };
   }
 
   pub fn recalculate_boundaries_extents(&mut self, extents: Extents) {
     for (pos_a, pos_b) in self.iter_pixel_pairs_extents(extents) {
-      let color_a = self.get_color_at(pos_a);
-      let color_b = self.get_color_at(pos_b);
       let b = UOrd::new(pos_a, pos_b);
-      if color_a != color_b {
-        self.boundaries.insert(b);
+      let rel = b.map(|pos| self.get_color_at(pos));
+      if rel.is_distinct() {
+        let is_special = self.has_connection(rel);
+        self.boundaries.insert(b, is_special);
       } else {
         self.boundaries.remove(&b);
       };
@@ -397,14 +397,23 @@ impl Map {
   }
 
   pub fn recalculate_boundaries_at(&mut self, pos: Vector2<u32>) {
-    let which = self.get_color_at(pos);
     for other in self.iter_pixels_adjacent(pos) {
       let b = UOrd::new(pos, other);
-      if self.get_color_at(other) != which {
-        self.boundaries.insert(b);
+      let rel = b.map(|pos| self.get_color_at(pos));
+      if rel.is_distinct() {
+        let is_special = self.has_connection(rel);
+        self.boundaries.insert(b, is_special);
       } else {
         self.boundaries.remove(&b);
       };
+    };
+  }
+
+  // Loops through every boundary, and determines whether or not they are special (have a connection) or not
+  pub fn recalculate_specialness(&mut self) {
+    for (b, _) in std::mem::take(&mut self.boundaries) {
+      let rel = b.map(|pos| self.get_color_at(pos));
+      self.boundaries.insert(b, self.has_connection(rel));
     };
   }
 
@@ -451,6 +460,10 @@ impl Map {
   pub fn has_unknown_provinces(&self) -> bool {
     self.province_data_map.values()
       .any(|province_data| province_data.kind == ProvinceKind::Unknown)
+  }
+
+  pub fn has_connection(&self, rel: UOrd<Color>) -> bool {
+    self.connection_data_map.contains_key(&rel)
   }
 
   /// Replaces all of one color in `color_buffer`
@@ -575,12 +588,6 @@ impl Map {
     self.connection_data_map.get(&rel).expect("connection not found with rel")
   }
 
-  //fn get_connection_mut(&mut self, rel: UOrd<Color>) -> &mut ConnectionData {
-  //  let connection = self.connection_data_map.get_mut(&rel)
-  //    .expect("connection not found with color");
-  //  Arc::make_mut(connection)
-  //}
-
   pub fn get_connection_positions(&self, rel: UOrd<Color>) -> (Vector2<f64>, Vector2<f64>) {
     let connection_data = self.get_connection(rel);
     if let (Some(start), Some(stop)) = (connection_data.start, connection_data.stop) {
@@ -658,8 +665,8 @@ impl Map {
     self.connection_data_map.iter().map(|(i, c)| (*i, &**c))
   }
 
-  pub fn iter_boundaries(&self) -> impl Iterator<Item = UOrd<Vector2<u32>>> + '_ {
-    self.boundaries.iter().map(|b| *b)
+  pub fn iter_boundaries(&self) -> impl Iterator<Item = (UOrd<Vector2<u32>>, bool)> + '_ {
+    self.boundaries.iter().map(|(b, is_special)| (*b, *is_special))
   }
 }
 

@@ -207,7 +207,7 @@ fn construct_map_data(
     color_buffer,
     province_data_map,
     connection_data_map,
-    boundaries: FxHashSet::default(),
+    boundaries: FxHashMap::default(),
     preserved_id_count: id_data
   };
 

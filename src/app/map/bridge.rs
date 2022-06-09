@@ -344,10 +344,10 @@ fn deconstruct_map_data_preserve_ids(bundle: &Bundle) -> Result<MapData, Error> 
     if let Some(preserved_id) = province_data.preserved_id {
       let definition = province_data.to_definition(color)?;
       let index = (preserved_id - 1) as usize;
-      if index > count {
-        outlier_definitions.push(definition);
-      } else {
+      if index < sparse_definitions_table.len() {
         sparse_definitions_table[index] = Some(definition);
+      } else {
+        outlier_definitions.push(definition);
       };
     } else {
       outlier_definitions.push(province_data.to_definition_with_id(color, 0)?);

@@ -32,7 +32,7 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - `3` Land type map view mode
 - `4` Continents map view mode
 - `5` Coastal provinces map view mode
-- `6` Adjacencies map view mode (currently non-functional)
+- `6` Adjacencies map view mode
 - `Left-click` will draw with a color or map data while a color or some data is selected
 - `Right-click` will grab and pan the camera around
 - `Middle-click` will pick whatever color or map data that you are pointing at
@@ -54,6 +54,9 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - `Escape` to cancel a lasso
 - `Enter` to complete a lasso
 
+Adjacencies may be created by dragging from one province to another with `Left-click`.
+Note that HOI4 requires `sea` and `land` adjacencies to have a "through province" which you will have to specify manually.
+
 ## Features
 - Map viewing, editing, manupulation, importing and exporting
 - Flood-fill and polygonal lasso tools
@@ -63,8 +66,6 @@ When painting continent IDs, you cannot paint continent 0 on land, and sea can o
 - Exporting terrain or land type view modes for MapGen/ProvGen
 - Preserving province IDs (in order to not break maps)
 - Viewing province ID numbers on the map
-
-## Planned Features
 - Support for creating/editing adjacencies
 
 ## Manually Building

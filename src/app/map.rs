@@ -316,7 +316,13 @@ impl Map {
 
   /// Removes all connections which contain the given color
   fn remove_related_connections(&mut self, which: Color) {
-    self.connection_data_map.retain(|rel, _| !rel.contains(&which));
+    self.connection_data_map.retain(|rel, conn| {
+      if conn.through == Some(which) {
+        Arc::make_mut(conn).through = None;
+      };
+
+      !rel.contains(&which)
+    });
   }
 
   /// Copies another image buffer into the image without any checks

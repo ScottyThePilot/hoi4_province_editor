@@ -1,6 +1,6 @@
 [package]
 name = "hoi4_province_editor"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["ScottyThePilot <scotty.codes@gmail.com>"]
 edition = "2021"
 description = "Map editor application for Hearts of Iron IV"

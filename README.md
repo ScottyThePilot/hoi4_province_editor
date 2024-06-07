@@ -1,4 +1,6 @@
 # HOI4 Province Editor
+[Latest Release](https://github.com/ScottyThePilot/hoi4_province_editor/releases/latest)
+
 This program is designed to simplify or replace needing to manually edit `provinces.bmp` and `definition.csv` when
 editing HOI4 Maps. The idea behind this program is that it unifies editing both files in one place with a graphical
 editor, as well as attempting to guarantee that all province maps created by this program will load correctly into

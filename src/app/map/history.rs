@@ -480,6 +480,7 @@ impl From<Extents> for Step {
   }
 }
 
+#[allow(deprecated)]
 fn pixel_lasso(map: &Map, lasso: Vec<Vector2<f64>>, color: Color, mask: Option<BrushMask>) -> (Extents, Vec<Vector2<u32>>) {
   use geo::{Coordinate, LineString, Polygon};
   use geo::algorithm::contains::Contains;

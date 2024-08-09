@@ -1,9 +1,9 @@
 use serde::{Serialize, Deserialize};
 
-use super::csv::ParseCsv;
+use super::csv::{ParseCsv, Parsed, CsvError, CsvLine};
 use super::ParseError;
 
-use std::str::{FromStr, ParseBoolError};
+use std::str::FromStr;
 use std::cmp::{Ord, PartialOrd, Ordering};
 use std::convert::TryFrom;
 use std::fmt;
@@ -27,22 +27,18 @@ pub struct Definition {
   pub continent: u16
 }
 
-impl ParseCsv<8> for Definition {
+impl ParseCsv for Definition {
   const HEADER_LINE: Option<&'static str> = Some(HEADER_LINE);
   const FOOTER_LINE: Option<&'static str> = None;
 
-  type Error = ParseError;
-
-  fn parse_line(line: [String; 8]) -> Result<Self, Self::Error> {
-    let [id, r, g, b, kind, coastal, terrain, continent] = line;
+  fn parse_line(line: CsvLine<'_>) -> Result<Self, CsvError> {
+    let (Parsed(id), Parsed(r), Parsed(g), Parsed(b), Parsed(kind), Parsed(Bool(coastal)), terrain, Parsed(continent)) =
+      line.parse::<(Parsed<u32>, Parsed<u8>, Parsed<u8>, Parsed<u8>, Parsed<DefinitionKind>, Parsed<Bool>, String, Parsed<u16>)>()?;
 
     Ok(Definition {
-      id: id.parse()?,
-      rgb: [r.parse()?, g.parse()?, b.parse()?],
-      kind: kind.parse()?,
-      coastal: parse_maybe_bool(&coastal)?,
+      id, rgb: [r, g, b], kind, coastal,
       terrain: terrain.to_lowercase(),
-      continent: continent.parse()?
+      continent
     })
   }
 }
@@ -131,10 +127,18 @@ impl fmt::Display for DefinitionKind {
   }
 }
 
-fn parse_maybe_bool(b: &str) -> Result<bool, ParseBoolError> {
-  match b {
-    "0" => Ok(false),
-    "1" => Ok(true),
-    b => b.to_lowercase().parse::<bool>()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Bool(bool);
+
+impl FromStr for Bool {
+  type Err = <bool as FromStr>::Err;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s {
+      "0" => Ok(Bool(false)),
+      "1" => Ok(Bool(true)),
+      s => s.to_lowercase()
+        .parse::<bool>().map(Bool)
+    }
   }
 }

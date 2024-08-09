@@ -1,10 +1,9 @@
 use serde::{Serialize, Deserialize};
 
-use super::csv::ParseCsv;
+use super::csv::{ParseCsv, Parsed, CsvError, CsvLine};
 use super::ParseError;
 
 use std::str::FromStr;
-use std::num::ParseIntError;
 use std::cmp::{Ord, PartialOrd, Ordering};
 use std::convert::TryFrom;
 use std::fmt;
@@ -34,24 +33,20 @@ pub struct Adjacency {
   pub comment: String
 }
 
-impl ParseCsv<10> for Adjacency {
+impl ParseCsv for Adjacency {
   const HEADER_LINE: Option<&'static str> = Some(HEADER_LINE);
   const FOOTER_LINE: Option<&'static str> = Some(FOOTER_LINE);
 
-  type Error = ParseError;
-
-  fn parse_line(line: [String; 10]) -> Result<Self, Self::Error> {
-    let [from_id, to_id, kind, through, start_x, start_y, stop_x, stop_y, rule_name, comment] = line;
+  fn parse_line(line: CsvLine<'_>) -> Result<Self, CsvError> {
+    let (Parsed(from_id), Parsed(to_id), Parsed(kind), Parsed(Num(through)), Parsed(Num(start_x)), Parsed(Num(start_y)), Parsed(Num(stop_x)), Parsed(Num(stop_y)), rule_name, comment) =
+      line.parse::<(Parsed<u32>, Parsed<u32>, Parsed<AdjacencyKind>, Parsed<Num>, Parsed<Num>, Parsed<Num>, Parsed<Num>, Parsed<Num>, Option<String>, Option<String>)>()?;
 
     Ok(Adjacency {
-      from_id: from_id.parse()?,
-      to_id: to_id.parse()?,
-      kind: kind.to_lowercase().parse()?,
-      through: parse_maybe_num(&through)?,
-      start: parse_maybe_pos(&start_x, &start_y)?,
-      stop: parse_maybe_pos(&stop_x, &stop_y)?,
-      rule_name,
-      comment
+      from_id, to_id, kind, through,
+      start: Option::zip(start_x, start_y).map(|(x, y)| [x, y]),
+      stop: Option::zip(stop_x, stop_y).map(|(x, y)| [x, y]),
+      rule_name: rule_name.map_or_else(String::new, |s| s.to_lowercase()),
+      comment: comment.map_or_else(String::new, |s| s.to_lowercase())
     })
   }
 }
@@ -151,22 +146,19 @@ impl fmt::Display for AdjacencyKind {
   }
 }
 
-fn parse_maybe_num(n: &str) -> Result<Option<u32>, ParseIntError> {
-  Ok(if n == "-1" { None } else { Some(n.parse::<u32>()?) })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Num(Option<u32>);
+
+impl FromStr for Num {
+  type Err = <u32 as FromStr>::Err;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    Ok(Num(if s.is_empty() || s == "-1" { None } else { Some(s.parse::<u32>()?) }))
+  }
 }
 
 fn stringify_maybe_num(num: Option<u32>) -> String {
   num.map_or("-1".to_owned(), |n| n.to_string())
-}
-
-fn parse_maybe_pos(x: &str, y: &str) -> Result<Option<[u32; 2]>, ParseIntError> {
-  if x == "-1" || y == "-1" {
-    Ok(None)
-  } else {
-    let x = x.parse::<u32>()?;
-    let y = y.parse::<u32>()?;
-    Ok(Some([x, y]))
-  }
 }
 
 fn stringify_maybe_pos(pos: Option<[u32; 2]>) -> String {

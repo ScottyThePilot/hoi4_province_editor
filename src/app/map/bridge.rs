@@ -439,11 +439,11 @@ pub fn read_rgb_bmp_image<R: Read>(reader: R) -> Result<RgbImage, Error> {
 }
 
 fn read_definition_table<R: Read>(reader: R) -> Result<Vec<Definition>, Error> {
-  Definition::parse_all(read_all(reader)?).map_err(From::from)
+  Definition::parse_all(read_all(reader)?).map_err(|err| Error::Csv(err, "definition.csv"))
 }
 
 fn read_adjacencies_table<R: Read>(reader: R) -> Result<Vec<Adjacency>, Error> {
-  Adjacency::parse_all(read_all(reader)?).map_err(From::from)
+  Adjacency::parse_all(read_all(reader)?).map_err(|err| Error::Csv(err, "adjacencies.csv"))
 }
 
 pub fn write_rgb_bmp_image<W: Write>(mut writer: W, province_image: &RgbImage) -> Result<(), Error> {

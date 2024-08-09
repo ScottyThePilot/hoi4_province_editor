@@ -3,11 +3,11 @@ mod history;
 mod bridge;
 mod problems;
 
-use crossbeam::thread::scope;
 use graphics::types::Color as DrawColor;
-use image::{Rgb, RgbImage, Rgba, RgbaImage, Pixel};
+use image::{Rgb, RgbImage, Rgba, RgbaImage};
 use fxhash::{FxHashMap, FxHashSet};
 use rand::Rng;
+use rayon::iter::ParallelIterator;
 use serde::{Serialize, Deserialize};
 use vecmath::Vector2;
 
@@ -27,9 +27,7 @@ pub use self::problems::Problem;
 use std::convert::TryFrom;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-const CHUNK_SIZE: usize = 1048576;
 const CARDINAL: [Vector2<i32>; 4] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
 
 pub type Color = [u8; 3];
@@ -197,73 +195,37 @@ impl Map {
   /// Generates a texture buffer, a buffer to be consumed by the canvas to display the map
   pub fn gen_texture_buffer<F>(&self, f: F) -> RgbaImage
   where F: Fn(Color) -> Color + Send + Sync {
-    const CHUNK_SIZE_BYTES: usize = CHUNK_SIZE * 4;
     let (width, height) = self.color_buffer.dimensions();
-    let mut buffer = RgbaImage::new(width, height);
-    scope(|s| {
-      for (i, scope_chunk) in buffer.chunks_mut(CHUNK_SIZE_BYTES).enumerate() {
-        let so = i * CHUNK_SIZE;
-        let f = &f;
-        s.spawn(move |_| {
-          for (lo, pixel) in scope_chunk.chunks_mut(4).enumerate() {
-            let pixel = <Rgba<u8> as Pixel>::from_slice_mut(pixel);
-            let pos = pos_from_offset(so, lo, width as usize);
-            let color = f(self.get_color_at(pos));
-            *pixel = Rgba(p4(color));
-          };
-        });
-      };
-    }).unwrap();
-
-    buffer
+    RgbaImage::from_par_fn(width, height, |x, y| {
+      Rgba(p4(f(self.get_color_at([x, y]))))
+    })
   }
 
   /// Generates a fragment of a texture buffer, based on a bounding box
   pub fn gen_texture_buffer_selective<F>(&self, extents: Extents, f: F) -> RgbaImage
   where F: Fn(Color) -> Color {
-    let (offset, size) = extents.to_offset_size();
-    let mut buffer = RgbaImage::new(size[0], size[1]);
-    for (x, y, pixel) in buffer.enumerate_pixels_mut() {
+    let (offset, [width, height]) = extents.to_offset_size();
+    RgbaImage::from_fn(width, height, |x, y| {
       let pos = vecmath::vec2_add(offset, [x, y]);
-      let color = f(self.get_color_at(pos));
-      *pixel = Rgba(p4(color));
-    };
-
-    buffer
+      Rgba(p4(f(self.get_color_at(pos))))
+    })
   }
 
   /// Generates an image buffer, a 24 bit RGB image to be exported and used outside of the program
   pub fn gen_image_buffer<F>(&self, f: F) -> Option<RgbImage>
   where F: Fn(Color) -> Option<Color> + Send + Sync {
-    const CHUNK_SIZE_BYTES: usize = CHUNK_SIZE * 3;
     let (width, height) = self.color_buffer.dimensions();
     let mut buffer = RgbImage::new(width, height);
-    let cancel = AtomicBool::new(false);
-    scope(|s| {
-      for (i, scope_chunk) in buffer.chunks_mut(CHUNK_SIZE_BYTES).enumerate() {
-        let so = i * CHUNK_SIZE;
-        let (f, cancel) = (&f, &cancel);
-        s.spawn(move |_| {
-          if cancel.load(Ordering::Relaxed) { return };
-          for (lo, pixel) in scope_chunk.chunks_mut(3).enumerate() {
-            let pixel = <Rgb<u8> as Pixel>::from_slice_mut(pixel);
-            let pos = pos_from_offset(so, lo, width as usize);
-            if let Some(color) = f(self.get_color_at(pos)) {
-              *pixel = Rgb(color);
-            } else {
-              cancel.store(true, Ordering::Relaxed);
-              break;
-            };
-          };
-        });
-      };
-    }).unwrap();
+    buffer.par_enumerate_pixels_mut().try_for_each(|(x, y, pixel)| {
+      if let Some(color) = f(self.get_color_at([x, y])) {
+        *pixel = Rgb(color);
+        Some(())
+      } else {
+        None
+      }
+    })?;
 
-    if cancel.into_inner() {
-      None
-    } else {
-      Some(buffer)
-    }
+    Some(buffer)
   }
 
   pub fn extract(&self, extents: Extents) -> RgbImage {
@@ -1112,12 +1074,6 @@ impl ColorKeyable for FxHashSet<Color> {
   fn contains_color(&self, color: Color) -> bool {
     self.contains(&color)
   }
-}
-
-#[inline(always)]
-fn pos_from_offset(so: usize, lo: usize, width: usize) -> Vector2<u32> {
-  let o = so + lo;
-  [(o % width) as u32, (o / width) as u32]
 }
 
 pub fn boundary_to_line(b: UOrd<Vector2<u32>>) -> UOrd<Vector2<u32>> {

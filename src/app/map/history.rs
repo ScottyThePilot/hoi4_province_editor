@@ -65,11 +65,9 @@ impl History {
 
     match self.steps.back_mut() {
       Some(last_step) if last_step.can_merge_with(&step) => {
-        println!("merging last step with new step {step:?}");
         last_step.merge_with(step);
       },
       Some(..) | None => {
-        println!("pushing new step {step:?}");
         // Push the new step onto the step list
         self.steps.push_back(step);
         // Increment the position counter
@@ -133,7 +131,6 @@ impl History {
       province_data.set_meta(kind, terrain.clone(), continent);
       let extents = bundle.map.recolor_province(which, repaint);
 
-      //self.push_map_state_selective(&bundle.map, ViewMode::Kind, extents);
       self.push_map_state(&bundle.map, StepOrigin::PaintProvinceKind, ViewMode::Kind);
       Some(extents)
     } else {
@@ -161,7 +158,6 @@ impl History {
       };
 
       self.push_map_state(&bundle.map, StepOrigin::PaintProvinceTerrain, ViewMode::Terrain);
-      //self.push_map_state_selective(&bundle.map, ViewMode::Terrain, extents);
       Some(extents)
     } else {
       None
@@ -179,7 +175,6 @@ impl History {
       province_data.continent = continent;
 
       self.push_map_state(&bundle.map, StepOrigin::PaintProvinceContinent, ViewMode::Continent);
-      //self.push_map_state_selective(&bundle.map, ViewMode::Continent, extents);
       Some(extents)
     } else {
       None
@@ -191,7 +186,6 @@ impl History {
     if which != fill_color {
       let extents = bundle.map.recolor_province(which, fill_color);
       self.push_map_state(&bundle.map, StepOrigin::PaintEntireProvince, ViewMode::Color);
-      //self.push_map_state_selective(&bundle.map, ViewMode::Color, extents);
       Some(extents)
     } else {
       None
@@ -209,7 +203,6 @@ impl History {
     if !pixels.is_empty() {
       bundle.map.put_many_pixels(color, &pixels);
       self.push_map_state(&bundle.map, StepOrigin::PaintPixelLasso, ViewMode::Color);
-      //self.push_map_state_selective(&bundle.map, ViewMode::Color, extents);
       Some(extents)
     } else {
       None
@@ -229,7 +222,6 @@ impl History {
     if masked && which != color {
       let extents = bundle.map.flood_fill_province(pos, color);
       self.push_map_state(&bundle.map, StepOrigin::PaintPixelBucket, ViewMode::Color);
-      //self.push_map_state_selective(&bundle.map, ViewMode::Color, extents);
       Some(extents)
     } else {
       None
@@ -249,7 +241,6 @@ impl History {
     if !pixels.is_empty() {
       bundle.map.put_many_pixels(color, &pixels);
       self.push_map_state(&bundle.map, StepOrigin::PaintPixelArea(id), ViewMode::Color);
-      //self.update_partial_extents(extents);
       Some(extents)
     } else {
       None
@@ -267,7 +258,6 @@ impl History {
       bundle.map.put_pixel(pos, color);
       let extents = Extents::new_point(pos);
       self.push_map_state(&bundle.map, StepOrigin::PaintPixel(id), ViewMode::Color);
-      //self.update_partial_extents(extents);
       Some(extents)
     } else {
       None

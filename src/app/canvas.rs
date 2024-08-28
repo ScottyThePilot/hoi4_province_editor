@@ -546,8 +546,6 @@ impl Canvas {
 
   fn tool_paint_end(&mut self) {
     self.tool.id += 1;
-
-    //self.history.finish_last_step(&self.bundle.map);
   }
 
   fn tool_paint_bucket(&mut self, cursor_pos: Vector2<f64>, fill_all: bool) {

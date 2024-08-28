@@ -142,7 +142,7 @@ impl Bundle {
   /// Search for terrains that are not included in the config
   pub fn search_unknown_terrains(&self) -> Option<FxHashSet<String>> {
     let mut unknown_terrains = FxHashSet::default();
-    for province_data in self.map.province_data_map.values() {
+    for province_data in self.map.base.province_data_map.values() {
       if !self.config.terrains.contains_key(&province_data.terrain) {
         unknown_terrains.insert(province_data.terrain.clone());
       };
@@ -156,46 +156,61 @@ impl Bundle {
   }
 
   pub fn random_color_pure(&self, kind: ProvinceKind) -> Color {
-    random_color_pure(&self.map.province_data_map, kind)
+    random_color_pure(&*self.map.base.province_data_map, kind)
   }
 }
 
 
 
+#[derive(Clone)]
+pub struct MapBase {
+  color_buffer: Arc<RgbImage>,
+  province_data_map: Arc<FxHashMap<Color, Arc<ProvinceData>>>,
+  connection_data_map: Arc<FxHashMap<UOrd<Color>, Arc<ConnectionData>>>
+}
+
+impl std::fmt::Debug for MapBase {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("MapBase")
+      .field("color_buffer", &format_args!("{:p}", self.color_buffer))
+      .field("province_data_map", &format_args!("{:p}", self.province_data_map))
+      .field("connection_data_map", &format_args!("{:p}", self.connection_data_map))
+      .finish()
+  }
+}
+
 #[derive(Debug)]
 pub struct Map {
-  color_buffer: RgbImage,
-  province_data_map: FxHashMap<Color, Arc<ProvinceData>>,
-  connection_data_map: FxHashMap<UOrd<Color>, Arc<ConnectionData>>,
+  base: MapBase,
   boundaries: FxHashMap<UOrd<Vector2<u32>>, bool>,
   preserved_id_count: Option<u32>
 }
 
 impl Map {
   pub fn dimensions(&self) -> Vector2<u32> {
-    [self.color_buffer.width(), self.color_buffer.height()]
+    [self.width(), self.height()]
   }
 
   pub fn width(&self) -> u32 {
-    self.color_buffer.width()
+    self.base.color_buffer.width()
   }
 
   pub fn height(&self) -> u32 {
-    self.color_buffer.height()
+    self.base.color_buffer.height()
   }
 
   pub fn provinces_count(&self) -> usize {
-    self.province_data_map.len()
+    self.base.province_data_map.len()
   }
 
   pub fn connections_count(&self) -> usize {
-    self.connection_data_map.len()
+    self.base.connection_data_map.len()
   }
 
   /// Generates a texture buffer, a buffer to be consumed by the canvas to display the map
   pub fn gen_texture_buffer<F>(&self, f: F) -> RgbaImage
   where F: Fn(Color) -> Color + Send + Sync {
-    let (width, height) = self.color_buffer.dimensions();
+    let [width, height] = self.dimensions();
     RgbaImage::from_par_fn(width, height, |x, y| {
       Rgba(p4(f(self.get_color_at([x, y]))))
     })
@@ -214,7 +229,7 @@ impl Map {
   /// Generates an image buffer, a 24 bit RGB image to be exported and used outside of the program
   pub fn gen_image_buffer<F>(&self, f: F) -> Option<RgbImage>
   where F: Fn(Color) -> Option<Color> + Send + Sync {
-    let (width, height) = self.color_buffer.dimensions();
+    let [width, height] = self.dimensions();
     let mut buffer = RgbImage::new(width, height);
     buffer.par_enumerate_pixels_mut().try_for_each(|(x, y, pixel)| {
       if let Some(color) = f(self.get_color_at([x, y])) {
@@ -231,17 +246,17 @@ impl Map {
   pub fn extract(&self, extents: Extents) -> RgbImage {
     use image::GenericImageView;
     let ([x, y], [width, height]) = extents.to_offset_size();
-    self.color_buffer.view(x, y, width, height).to_image()
+    self.base.color_buffer.view(x, y, width, height).to_image()
   }
 
   /// Sets the color of a single pixel in `color_buffer` and manages the
   /// pixel counts of all relevant provinces, returning Some(Color) if the
   /// province whos pixel was replaced no longer has any pixels left
   fn put_pixel_raw(&mut self, pos: Vector2<u32>, color: Color) -> Option<Color> {
-    let pixel = self.color_buffer.get_pixel_mut(pos[0], pos[1]);
+    let pixel = Arc::make_mut(&mut self.base.color_buffer).get_pixel_mut(pos[0], pos[1]);
     let Rgb(previous_color) = std::mem::replace(pixel, Rgb(color));
 
-    let entry = self.province_data_map.entry(color).or_default();
+    let entry = Arc::make_mut(&mut self.base.province_data_map).entry(color).or_default();
     let entry = Arc::make_mut(entry);
     entry.add_pixel(pos);
 
@@ -272,13 +287,13 @@ impl Map {
   }
 
   fn erase_province_data(&mut self, color: Color) {
-    self.province_data_map.remove(&color);
+    Arc::make_mut(&mut self.base.province_data_map).remove(&color);
     self.remove_related_connections(color);
   }
 
   /// Removes all connections which contain the given color
   fn remove_related_connections(&mut self, which: Color) {
-    self.connection_data_map.retain(|rel, conn| {
+    Arc::make_mut(&mut self.base.connection_data_map).retain(|rel, conn| {
       if conn.through == Some(which) {
         Arc::make_mut(conn).through = None;
       };
@@ -290,16 +305,17 @@ impl Map {
   /// Copies another image buffer into the image without any checks
   fn put_selective_raw(&mut self, buffer: &RgbImage, offset: Vector2<u32>) {
     use image::GenericImage;
-    self.color_buffer.copy_from(buffer, offset[0], offset[1]).expect("error");
+    Arc::make_mut(&mut self.base.color_buffer)
+      .copy_from(buffer, offset[0], offset[1]).expect("error");
   }
 
   pub fn validate_pixel_counts(&self) -> bool {
     let mut pixel_counts = FxHashMap::<Color, u64>::default();
-    for &Rgb(pixel) in self.color_buffer.pixels() {
+    for &Rgb(pixel) in self.base.color_buffer.pixels() {
       *pixel_counts.entry(pixel).or_insert(0) += 1;
     };
 
-    for (color, province_data) in self.province_data_map.iter() {
+    for (color, province_data) in self.base.province_data_map.iter() {
       if pixel_counts.get(color) != Some(&province_data.pixel_count) {
         return false;
       };
@@ -309,7 +325,7 @@ impl Map {
   }
 
   pub fn calculate_coastal_provinces(&self) -> FxHashMap<Color, Option<bool>> {
-    let mut coastal_provinces = self.province_data_map.keys()
+    let mut coastal_provinces = self.base.province_data_map.keys()
       .map(|&color| (color, Some(false)))
       .collect::<FxHashMap<Color, Option<bool>>>();
 
@@ -426,50 +442,54 @@ impl Map {
 
   /// If the map has any provinces where the type is `Unknown`
   pub fn has_unknown_provinces(&self) -> bool {
-    self.province_data_map.values()
+    self.base.province_data_map.values()
       .any(|province_data| province_data.kind == ProvinceKind::Unknown)
   }
 
   pub fn has_connection(&self, rel: UOrd<Color>) -> bool {
-    self.connection_data_map.contains_key(&rel)
+    self.base.connection_data_map.contains_key(&rel)
   }
 
   /// Replaces all of one color in `color_buffer`
   fn replace_color_raw(&mut self, which: Color, color: Color) -> Extents {
-    let mut out: Option<Extents> = None;
-    for (x, y, Rgb(pixel)) in self.color_buffer.enumerate_pixels_mut() {
-      if *pixel == which {
-        *pixel = color;
-        out = Some(match out {
-          Some(extents) => extents.join_point([x, y]),
-          None => Extents::new_point([x, y])
-        });
-      };
-    };
+    Arc::make_mut(&mut self.base.color_buffer)
+      .enumerate_pixels_mut()
+      .fold(None, |out: Option<Extents>, (x, y, Rgb(pixel))| {
+        if *pixel == which {
+          *pixel = color;
 
-    out.expect("color not found in map")
+          Some(match out {
+            Some(extents) => extents.join_point([x, y]),
+            None => Extents::new_point([x, y])
+          })
+        } else {
+          out
+        }
+      })
+      .expect("color not found in map")
   }
 
   /// Replaces the key of one province with a new color in `province_data_map`
   fn rekey_province_raw(&mut self, which: Color, color: Color) {
-    let province_data = self.province_data_map.remove(&which)
+    let province_data_map = Arc::make_mut(&mut self.base.province_data_map);
+    let province_data = province_data_map.remove(&which)
       .expect("province not found with color");
-    let result = self.province_data_map.insert(color, province_data);
+    let result = province_data_map.insert(color, province_data);
     debug_assert_eq!(result, None);
   }
 
   /// Replaces the keys of all connections containing one color with another color
   fn rekey_connections_raw(&mut self, which: Color, color: Color) {
-    if !self.connection_data_map.is_empty() {
+    if !self.base.connection_data_map.is_empty() {
       let mut new_connection_data_map = fx_hash_map_with_capacity(self.connections_count());
-      for (rel, connection_data) in self.connection_data_map.drain() {
+      for (&rel, connection_data) in self.base.connection_data_map.iter() {
         // `through` does not get replaced here because it should
         // not be one of the colors that compose `rel`
         debug_assert_ne!(connection_data.through, Some(which));
-        new_connection_data_map.insert(rel.replace(which, color), connection_data);
+        new_connection_data_map.insert(rel.replace(which, color), connection_data.clone());
       };
 
-      self.connection_data_map = new_connection_data_map;
+      self.base.connection_data_map = Arc::new(new_connection_data_map);
     };
   }
 
@@ -522,7 +542,7 @@ impl Map {
 
   pub fn get_color_extents(&self, which: Color) -> Extents {
     let mut out: Option<Extents> = None;
-    for (x, y, &Rgb(pixel)) in self.color_buffer.enumerate_pixels() {
+    for (x, y, &Rgb(pixel)) in self.base.color_buffer.enumerate_pixels() {
       if pixel == which {
         out = Some(match out {
           Some(extents) => extents.join_point([x, y]),
@@ -535,16 +555,16 @@ impl Map {
   }
 
   pub fn get_color_at(&self, pos: Vector2<u32>) -> Color {
-    self.color_buffer.get_pixel(pos[0], pos[1]).0
+    self.base.color_buffer.get_pixel(pos[0], pos[1]).0
   }
 
   pub fn get_province(&self, color: Color) -> &ProvinceData {
-    self.province_data_map.get(&color).expect("province not found with color")
+    self.base.province_data_map.get(&color).expect("province not found with color")
   }
 
   fn get_province_mut(&mut self, color: Color) -> &mut ProvinceData {
-    let province = self.province_data_map.get_mut(&color)
-      .expect("province not found with color");
+    let province = Arc::make_mut(&mut self.base.province_data_map)
+      .get_mut(&color).expect("province not found with color");
     Arc::make_mut(province)
   }
 
@@ -553,7 +573,7 @@ impl Map {
   }
 
   pub fn get_connection(&self, rel: UOrd<Color>) -> &ConnectionData {
-    self.connection_data_map.get(&rel).expect("connection not found with rel")
+    self.base.connection_data_map.get(&rel).expect("connection not found with rel")
   }
 
   pub fn get_connection_positions(&self, rel: UOrd<Color>) -> (Vector2<f64>, Vector2<f64>) {
@@ -602,7 +622,7 @@ impl Map {
       if u & BIT == 0 { u | BIT } else { !u }
     }
 
-    let mut pairs = self.connection_data_map.keys()
+    let mut pairs = self.base.connection_data_map.keys()
       .map(|&rel| (rel, distance(self, rel, pos)))
       .collect::<Vec<(UOrd<Color>, f64)>>();
     pairs.sort_by_key(|&(_, d)| convert(d));
@@ -613,7 +633,7 @@ impl Map {
 
   pub fn add_or_remove_connection(&mut self, rel: UOrd<Color>, kind: ConnectionKind) {
     use std::collections::hash_map::Entry;
-    match self.connection_data_map.entry(rel) {
+    match Arc::make_mut(&mut self.base.connection_data_map).entry(rel) {
       Entry::Vacant(entry) => {
         entry.insert(Arc::new(ConnectionData::new(kind)));
       },
@@ -626,11 +646,11 @@ impl Map {
   }
 
   pub fn iter_province_data(&self) -> impl Iterator<Item = (Color, &ProvinceData)> {
-    self.province_data_map.iter().map(|(i, d)| (*i, &**d))
+    self.base.province_data_map.iter().map(|(i, d)| (*i, &**d))
   }
 
   pub fn iter_connection_data(&self) -> impl Iterator<Item = (UOrd<Color>, &ConnectionData)> {
-    self.connection_data_map.iter().map(|(i, c)| (*i, &**c))
+    self.base.connection_data_map.iter().map(|(i, c)| (*i, &**c))
   }
 
   pub fn iter_boundaries(&self) -> impl Iterator<Item = (UOrd<Vector2<u32>>, bool)> + '_ {
@@ -1073,6 +1093,12 @@ impl<T> ColorKeyable for FxHashMap<Color, T> {
 impl ColorKeyable for FxHashSet<Color> {
   fn contains_color(&self, color: Color) -> bool {
     self.contains(&color)
+  }
+}
+
+impl<T: ColorKeyable> ColorKeyable for &T {
+  fn contains_color(&self, color: Color) -> bool {
+    T::contains_color(&self, color)
   }
 }
 

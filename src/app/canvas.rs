@@ -520,7 +520,7 @@ impl Canvas {
     if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
       if let (Some(color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
         let pos = self.camera.relative_position(cursor_pos);
-        if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.tool.radius, color, self.tool.brush_mask) {
+        if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.tool.radius, color, self.tool.brush_mask, self.tool.id) {
           self.problems.clear();
           self.modified = true;
           self.refresh_selective(extents);
@@ -545,7 +545,9 @@ impl Canvas {
   }
 
   fn tool_paint_end(&mut self) {
-    self.history.finish_last_step(&self.bundle.map);
+    self.tool.id += 1;
+
+    //self.history.finish_last_step(&self.bundle.map);
   }
 
   fn tool_paint_bucket(&mut self, cursor_pos: Vector2<f64>, fill_all: bool) {
@@ -703,6 +705,7 @@ pub struct ToolSettings {
   pub brush_mask: Option<BrushMask>,
   pub lasso_snap: bool,
   pub radius: f64,
+  pub id: u32,
   pub mode: ToolMode
 }
 
@@ -728,6 +731,7 @@ impl Default for ToolSettings {
       brush_mask: None,
       lasso_snap: false,
       radius: 8.0,
+      id: 0,
       mode: ToolMode::default()
     }
   }

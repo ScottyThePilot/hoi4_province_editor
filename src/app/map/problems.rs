@@ -217,7 +217,7 @@ pub fn analyze(bundle: &Bundle) -> Vec<Problem> {
 
 fn is_crossing_at(map: &Map, [x0, y0]: Vector2<u32>) -> bool {
   #![allow(clippy::many_single_char_names)]
-  let [x1, y1] = [if x0 + 1 == map.color_buffer.width() { 0 } else { x0 + 1 }, y0 + 1];
+  let [x1, y1] = [if x0 + 1 == map.width() { 0 } else { x0 + 1 }, y0 + 1];
   let a = map.get_color_at([x0, y0]);
   let b = map.get_color_at([x1, y0]);
   let c = map.get_color_at([x0, y1]);

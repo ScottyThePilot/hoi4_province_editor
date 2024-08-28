@@ -1,5 +1,5 @@
 #![warn(missing_debug_implementations)]
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(any(debug_assertions, feature = "debug-mode")), windows_subsystem = "windows")]
 #[macro_use]
 pub mod util;
 pub mod app;
@@ -60,9 +60,9 @@ fn install_handler() {
 
   use std::fs::File;
   let printer = BacktracePrinter::new()
-    .verbosity(Verbosity::Medium)
-    .lib_verbosity(Verbosity::Medium);
-  std::panic::set_hook(match cfg!(debug_assertions) {
+    .verbosity(Verbosity::Full)
+    .lib_verbosity(Verbosity::Full);
+  std::panic::set_hook(match cfg!(any(debug_assertions, feature = "debug-mode")) {
     // Print to console if debug assertions are enabled
     true => printer.into_panic_handler(color_backtrace::default_output_stream()),
     // Dump to a file if debug assertions are disabled

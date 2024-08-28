@@ -76,9 +76,9 @@ impl EventHandler for App {
     if let Some(path) = std::env::args().nth(1) {
       self.raw_open_map_at(path);
     } else {
-      #[cfg(debug_assertions)]
+      #[cfg(any(debug_assertions, feature = "debug-mode"))]
       self.raw_open_map_at("./test_map.zip");
-      #[cfg(not(debug_assertions))]
+      #[cfg(not(any(debug_assertions, feature = "debug-mode")))]
       self.alerts.push(Ok("Drag a file, archive, or folder onto the application to load a map"));
     };
   }
@@ -251,9 +251,9 @@ impl App {
       (Some(canvas), SidebarToolPaintArea) => canvas.set_tool_mode(ToolMode::PaintArea),
       (Some(canvas), SidebarToolPaintBucket) => canvas.set_tool_mode(ToolMode::PaintBucket),
       (Some(canvas), SidebarToolLasso) => canvas.set_tool_mode(ToolMode::new_lasso()),
-      #[cfg(debug_assertions)]
+      #[cfg(any(debug_assertions, feature = "debug-mode"))]
       (Some(canvas), ToolbarDebugValidatePixelCounts) => canvas.validate_pixel_counts(&mut self.alerts),
-      #[cfg(debug_assertions)]
+      #[cfg(any(debug_assertions, feature = "debug-mode"))]
       (_, ToolbarDebugTriggerCrash) => panic!("debug crash"),
       (None, _) => self.alerts.push(Err("You must have a map loaded to use this")),
     };

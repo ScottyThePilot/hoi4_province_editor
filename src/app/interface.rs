@@ -365,9 +365,9 @@ pub enum ButtonId {
   ToolbarViewToggleBoundaries,
   ToolbarViewResetZoom,
   ToolbarViewFontLicense,
-  #[cfg(debug_assertions)]
+  #[cfg(any(debug_assertions, feature = "debug-mode"))]
   ToolbarDebugValidatePixelCounts,
-  #[cfg(debug_assertions)]
+  #[cfg(any(debug_assertions, feature = "debug-mode"))]
   ToolbarDebugTriggerCrash,
   SidebarToolPaintArea,
   SidebarToolPaintBucket,
@@ -411,7 +411,7 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom),
     ("View Inconsolata Open Font License", "", ButtonId::ToolbarViewFontLicense)
   ]),
-  #[cfg(debug_assertions)]
+  #[cfg(any(debug_assertions, feature = "debug-mode"))]
   ("Debug", &[
     ("Validate Pixel Counts", "", ButtonId::ToolbarDebugValidatePixelCounts),
     ("Trigger a Crash", "", ButtonId::ToolbarDebugTriggerCrash)

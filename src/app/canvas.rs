@@ -49,7 +49,7 @@ impl Canvas {
     let texture_settings = TextureSettings::new().mag(Filter::Nearest);
     let texture = Texture::from_image(&bundle.texture_buffer_color(), &texture_settings);
     // The test map is very small with large ocean provinces, the 'too large box' errors go nuts
-    let problems = if cfg!(debug_assertions) { Vec::new() } else { bundle.generate_problems() };
+    let problems = if cfg!(any(debug_assertions, feature = "debug-mode")) { Vec::new() } else { bundle.generate_problems() };
     let unknown_terrains = bundle.search_unknown_terrains();
     let show_province_ids = bundle.config.preserve_ids;
     let camera = Camera::new(&texture);

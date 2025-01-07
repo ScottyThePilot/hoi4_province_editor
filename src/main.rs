@@ -53,28 +53,55 @@ fn root_dir() -> io::Result<PathBuf> {
   Err(io::Error::new(io::ErrorKind::Other, "failed to find an application root"))
 }
 
+use std::io::prelude::*;
+
+fn write_application_info(mut out: impl Write) -> Result<(), std::io::Error> {
+  writeln!(out, "Version: v{}", env!("CARGO_PKG_VERSION"))?;
+  writeln!(out, "Debug Assertions Enabled: {:?}", cfg!(debug_assertions))?;
+  writeln!(out, "Debug Mode Feature Enabled: {:?}", cfg!(feature = "debug-mode"))?;
+  writeln!(out)?;
+
+  Ok(())
+}
+
 fn install_handler() {
   use chrono::Local;
   use color_backtrace::{BacktracePrinter, Verbosity};
   use termcolor::NoColor;
 
   use std::fs::File;
+  use std::panic::{set_hook, PanicInfo};
+  use std::sync::Mutex;
+
   let printer = BacktracePrinter::new()
     .verbosity(Verbosity::Full)
-    .lib_verbosity(Verbosity::Full);
-  std::panic::set_hook(match cfg!(any(debug_assertions, feature = "debug-mode")) {
-    // Print to console if debug assertions are enabled
-    true => printer.into_panic_handler(color_backtrace::default_output_stream()),
-    // Dump to a file if debug assertions are disabled
-    false => Box::new(move |pi| {
+    .lib_verbosity(Verbosity::Full)
+    .clear_frame_filters();
+  let out = Mutex::new(color_backtrace::default_output_stream());
+  set_hook(Box::new(move |pi: &PanicInfo| {
+    // if either of these are enabled, the console is enabled (on windows)
+    if cfg!(any(debug_assertions, feature = "debug-mode")) {
+      let mut out_lock = out.lock().unwrap();
+      if let Err(err) = printer.print_panic_info(pi, &mut *out_lock) {
+        eprintln!("Error while printing panic: {err:?}");
+      };
+    };
+
+    // only write panic info to file if not on dev profile
+    if cfg!(not(debug_assertions)) {
       let now = Local::now().format("%Y%m%d_%H%M%S");
       match File::create(format!("crash_{}.log", now)) {
-        Ok(file) => match printer.print_panic_info(pi, &mut NoColor::new(file)) {
-          Ok(()) => (),
-          Err(e) => eprintln!("Error while printing panic: {:?}", e)
+        Ok(out_file) => {
+          if let Err(err) = write_application_info(&out_file) {
+            eprintln!("Error while printing application info: {err:?}");
+          };
+
+          if let Err(err) = printer.print_panic_info(pi, &mut NoColor::new(&out_file)) {
+            eprintln!("Error while printing panic: {err:?}");
+          };
         },
         Err(e) => eprintln!("Error creating crash log: {:?}", e)
       };
-    })
-  });
+    };
+  }));
 }

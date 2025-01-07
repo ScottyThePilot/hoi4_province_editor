@@ -1,6 +1,6 @@
 [package]
 name = "hoi4_province_editor"
-version = "0.3.4"
+version = "0.3.5"
 authors = ["ScottyThePilot <scotty.codes@gmail.com>"]
 edition = "2021"
 description = "Map editor application for Hearts of Iron IV"
@@ -40,7 +40,7 @@ debug = 2
 
 [profile.release]
 opt-level = 3
-debug = 1
+debug = 2
 
 [features]
 debug-mode = []

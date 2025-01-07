@@ -36,27 +36,22 @@ impl History {
 
   pub fn undo(&mut self, map: &mut Map) -> Option<Commit> {
     // Apply the previous state
-    if self.position != 0 {
-      Some(self.apply(map, self.position - 1))
-    } else {
-      None
-    }
+    self.position.checked_sub(1).and_then(|position| {
+      self.steps.get_mut(position).map(|step| {
+        self.position = position;
+        step.apply(map)
+      })
+    })
   }
 
   pub fn redo(&mut self, map: &mut Map) -> Option<Commit> {
     // Apply the next state
-    if self.position + 1 < self.steps.len() {
-      Some(self.apply(map, self.position + 1))
-    } else {
-      None
-    }
-  }
-
-  fn apply(&mut self, map: &mut Map, position: usize) -> Commit {
-    self.position = position;
-
-    // Apply the current state
-    self.steps[position].apply(map)
+    self.position.checked_add(1).and_then(|position| {
+      self.steps.get_mut(position).map(|step| {
+        self.position = position;
+        step.apply(map)
+      })
+    })
   }
 
   fn push(&mut self, step: Step) {

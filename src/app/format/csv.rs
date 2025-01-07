@@ -133,7 +133,7 @@ impl<T> ParseCsvCell for Parsed<T>
 where T: FromStr, T::Err: StdError + Send + Sync + 'static {
   fn parse_from(cell: Option<&str>) -> Result<Self, CsvError> {
     if let Some(cell) = cell {
-      match cell.parse::<T>() {
+      match cell.trim().parse::<T>() {
         Ok(cell) => Ok(Parsed(cell)),
         Err(err) => Err(CsvError::ParsingCellFailed(Box::new(err)))
       }

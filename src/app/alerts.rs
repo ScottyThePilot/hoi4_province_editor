@@ -4,8 +4,7 @@ use graphics::types::Color as DrawColor;
 use opengl_graphics::GlGraphics;
 
 use super::{colors, FontGlyphCache};
-use super::interface::{get_toolbar_height, get_sidebar_width};
-use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
+use super::interface::Interface;
 use crate::font::{self, FONT_SIZE};
 
 use std::collections::VecDeque;
@@ -61,33 +60,33 @@ impl Alerts {
     };
   }
 
-  pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
+  pub fn draw(&self, ctx: Context, interface: &Interface, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
     const LINE_SPACING: f64 = 1.10;
-    const WINDOW_HEIGHT_F: f64 = WINDOW_HEIGHT as f64;
-    const WINDOW_WIDTH_F: f64 = WINDOW_WIDTH as f64;
+
+    let [window_width, window_height] = interface.get_window_size();
 
     let v_metrics = font::get_v_metrics();
     let font_height = ((v_metrics.ascent - v_metrics.descent) * LINE_SPACING).round();
 
     if self.active {
-      let height = WINDOW_HEIGHT_F - font_height - PADDING[1] * 1.25;
+      let height = window_height - font_height - PADDING[1] * 1.25;
 
-      let pos = [WINDOW_WIDTH_F, WINDOW_HEIGHT_F];
+      let pos = [window_width, window_height];
       graphics::rectangle_from_to(colors::OVERLAY_T, [0.0, 0.0], pos, ctx.transform, gl);
 
       for (i, (text, color)) in self.iter_all().enumerate() {
-        let x = PADDING[0] + get_sidebar_width();
+        let x = PADDING[0] + interface.get_sidebar_width() as f64;
         let y = height - i as f64 * font_height;
         let t = ctx.transform.trans(x, y);
         graphics::text(color, FONT_SIZE, text, glyph_cache, t, gl)
           .expect("unable to draw text");
       };
     } else {
-      let height = self.len() as f64 * font_height + PADDING[1] + get_toolbar_height();
-      let height = height.min(WINDOW_HEIGHT_F - PADDING[1] * 1.25);
+      let height = self.len() as f64 * font_height + PADDING[1] + interface.get_toolbar_height() as f64;
+      let height = height.min(window_height - PADDING[1] * 1.25);
 
       for (i, (text, color)) in self.iter().enumerate() {
-        let x = PADDING[0] + get_sidebar_width();
+        let x = PADDING[0] + interface.get_sidebar_width() as f64;
         let y = height - i as f64 * font_height;
         let t = ctx.transform.trans(x, y);
         graphics::text(color, FONT_SIZE, text, glyph_cache, t, gl)

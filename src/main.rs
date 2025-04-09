@@ -19,8 +19,8 @@ use std::path::PathBuf;
 use std::env;
 use std::io;
 
-const WINDOW_WIDTH: u32 = 1280;
-const WINDOW_HEIGHT: u32 = 720;
+const DEFAULT_WINDOW_WIDTH: u32 = 1280;
+const DEFAULT_WINDOW_HEIGHT: u32 = 720;
 
 pub const APPNAME: &str = concat!("HOI4 Province Map Editor v", env!("CARGO_PKG_VERSION"));
 
@@ -31,9 +31,9 @@ fn main() {
   env::set_current_dir(root).expect("unable to set root dir");
 
   let opengl = OpenGL::V3_2;
-  let screen = [WINDOW_WIDTH, WINDOW_HEIGHT];
+  let screen = [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT];
   let mut window: GlutinWindow = WindowSettings::new(APPNAME, screen)
-    .graphics_api(opengl).resizable(false).vsync(true)
+    .graphics_api(opengl).resizable(true).vsync(true)
     .build().expect("unable to initialize window");
   let mut gl = GlGraphics::new(opengl);
   launch::<App>(&mut window, &mut gl);
@@ -70,7 +70,7 @@ fn install_handler() {
   use termcolor::NoColor;
 
   use std::fs::File;
-  use std::panic::{set_hook, PanicInfo};
+  use std::panic::{set_hook, PanicHookInfo};
   use std::sync::Mutex;
 
   let printer = BacktracePrinter::new()
@@ -78,7 +78,7 @@ fn install_handler() {
     .lib_verbosity(Verbosity::Full)
     .clear_frame_filters();
   let out = Mutex::new(color_backtrace::default_output_stream());
-  set_hook(Box::new(move |pi: &PanicInfo| {
+  set_hook(Box::new(move |pi: &PanicHookInfo| {
     // if either of these are enabled, the console is enabled (on windows)
     if cfg!(any(debug_assertions, feature = "debug-mode")) {
       let mut out_lock = out.lock().unwrap();

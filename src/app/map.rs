@@ -303,6 +303,7 @@ impl Map {
   }
 
   /// Copies another image buffer into the image without any checks
+  #[allow(unused)]
   fn put_selective_raw(&mut self, buffer: &RgbImage, offset: Vector2<u32>) {
     use image::GenericImage;
     Arc::make_mut(&mut self.base.color_buffer)

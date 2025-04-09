@@ -5,6 +5,7 @@ pub mod interface;
 pub mod map;
 
 use glutin::window::CursorIcon;
+use graphics::Viewport;
 use graphics::context::Context;
 use graphics::glyph_cache::rusttype::GlyphCache;
 use opengl_graphics::{GlGraphics, Filter, Texture, TextureSettings};
@@ -16,7 +17,7 @@ use crate::font;
 use crate::events::{EventHandler, KeyMods};
 use self::alerts::Alerts;
 use self::canvas::{Canvas, ToolMode, ViewMode};
-use self::interface::{Interface, ButtonId};
+use self::interface::{Interface, ButtonId, get_interface, construct_interface};
 use self::map::{Location, IntoLocation};
 
 use std::path::{Path, PathBuf};
@@ -52,7 +53,7 @@ pub struct App {
   pub canvas: Option<Canvas>,
   pub alerts: Alerts,
   pub glyph_cache: FontGlyphCache,
-  pub interface: Interface,
+  pub interface: Option<Interface>,
   pub painting: bool
 }
 
@@ -61,13 +62,12 @@ impl EventHandler for App {
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
     let mut glyph_cache = GlyphCache::from_font(font::get_font(), (), texture_settings);
     glyph_cache.preload_printable_ascii(font::FONT_SIZE).expect("unable to preload font glyphs");
-    let interface = self::interface::construct_interface();
 
     App {
       canvas: None,
       alerts: Alerts::new(5.0),
       glyph_cache,
-      interface,
+      interface: None,
       painting: false
     }
   }
@@ -84,15 +84,17 @@ impl EventHandler for App {
   }
 
   fn on_render(&mut self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+    let Some(viewport) = ctx.viewport else { return };
+    let ictx = self.get_interface_draw_context();
+    let interface = &*get_interface(&mut self.interface, viewport);
     graphics::clear(colors::NEUTRAL, gl);
 
     if let Some(canvas) = &self.canvas {
-      canvas.draw(ctx, &mut self.glyph_cache, cursor_pos, gl);
+      canvas.draw(ctx, interface, &mut self.glyph_cache, cursor_pos, gl);
     };
 
-    self.alerts.draw(ctx, &mut self.glyph_cache, gl);
-    let ictx = self.get_interface_draw_context();
-    self.interface.draw(ctx, ictx, cursor_pos, &mut self.glyph_cache, gl);
+    self.alerts.draw(ctx, interface, &mut self.glyph_cache, gl);
+    interface.draw(ctx, ictx, cursor_pos, &mut self.glyph_cache, gl);
   }
 
   fn on_update(&mut self, dt: f32) {
@@ -102,6 +104,7 @@ impl EventHandler for App {
   }
 
   fn on_key(&mut self, key: Key, state: bool, mods: KeyMods, cursor_pos: Option<Vector2<f64>>) {
+    let Some(interface) = self.interface.as_ref() else { return };
     match (&mut self.canvas, state, key) {
       (_, state, Key::Tab) => self.alerts.set_state(state),
       (_, true, Key::O) if mods.ctrl => self.action_open_map(mods.alt),
@@ -110,7 +113,7 @@ impl EventHandler for App {
       (Some(_), true, Key::R) if mods.ctrl && mods.alt => self.action_reveal_map(),
       (Some(canvas), true, Key::Z) if mods.ctrl => canvas.undo(),
       (Some(canvas), true, Key::Y) if mods.ctrl => canvas.redo(),
-      (Some(canvas), true, Key::Space) => canvas.cycle_tool_brush(cursor_pos, &mut self.alerts),
+      (Some(canvas), true, Key::Space) => canvas.cycle_tool_brush(interface, cursor_pos, &mut self.alerts),
       (Some(canvas), true, Key::Escape) => canvas.cancel_tool(),
       (Some(canvas), true, Key::Return) => canvas.finish_tool(),
       (Some(canvas), true, Key::C) if mods.shift => canvas.calculate_coastal_provinces(),
@@ -132,8 +135,9 @@ impl EventHandler for App {
   }
 
   fn on_mouse(&mut self, button: MouseButton, state: bool, mods: KeyMods, pos: Vector2<f64>) {
+    let Some(interface) = self.interface.as_mut() else { return };
     match (&mut self.canvas, state, button) {
-      (_, true, MouseButton::Left) => match self.interface.on_mouse_click(pos) {
+      (_, true, MouseButton::Left) => match interface.on_mouse_click(pos) {
         Ok(id) => self.action_interface_button(id),
         Err(true) => self.action_activate_tool(pos, mods),
         Err(false) => ()
@@ -141,17 +145,18 @@ impl EventHandler for App {
       (Some(_), false, MouseButton::Left) => self.action_deactivate_tool(),
       (Some(canvas), true, MouseButton::Right) => canvas.camera.set_panning(true),
       (Some(canvas), false, MouseButton::Right) => canvas.camera.set_panning(false),
-      (Some(canvas), true, MouseButton::Middle) => canvas.pick_tool_brush(pos, &mut self.alerts),
+      (Some(canvas), true, MouseButton::Middle) => canvas.pick_tool_brush(interface, pos, &mut self.alerts),
       _ => ()
     };
   }
 
   fn on_mouse_position(&mut self, pos: Vector2<f64>, mods: KeyMods) {
-    self.interface.on_mouse_position(pos);
+    let Some(interface) = self.interface.as_mut() else { return };
+    interface.on_mouse_position(pos);
     if let Some(canvas) = &mut self.canvas {
       if self.painting && canvas.tool.mode == ToolMode::PaintArea && canvas.view_mode() != ViewMode::Adjacencies {
         // Mouse movement should not activate the tool for the paint bucket and lasso tools
-        canvas.activate_tool(pos, mods.shift);
+        canvas.activate_tool(interface, pos, mods.shift);
       };
     };
   }
@@ -163,17 +168,22 @@ impl EventHandler for App {
   }
 
   fn on_mouse_scroll(&mut self, [_, y]: Vector2<f64>, mods: KeyMods, cursor_pos: Vector2<f64>) {
-    if let Some(canvas) = &mut self.canvas {
-      if mods.shift {
-        canvas.change_tool_radius(y);
-      } else {
-        canvas.camera.on_mouse_zoom(y, cursor_pos);
-      };
+    let Some(interface) = self.interface.as_ref() else { return };
+    let Some(canvas) = &mut self.canvas else { return };
+
+    if mods.shift {
+      canvas.change_tool_radius(y);
+    } else {
+      canvas.camera.on_mouse_zoom(interface, y, cursor_pos);
     };
   }
 
   fn on_file_drop(&mut self, path: PathBuf) {
     self.raw_open_map_at(path);
+  }
+
+  fn on_resize(&mut self, viewport: Viewport) {
+    self.interface = Some(construct_interface(viewport));
   }
 
   fn on_unfocus(&mut self) {
@@ -260,12 +270,13 @@ impl App {
   }
 
   fn action_activate_tool(&mut self, pos: Vector2<f64>, mods: KeyMods) {
+    let Some(interface) = self.interface.as_ref() else { return };
     self.painting = true;
     if let Some(canvas) = &mut self.canvas {
       if canvas.view_mode() == ViewMode::Adjacencies && canvas.tool.adjacency_brush.is_none() {
         self.alerts.push(Err("No Adjacency brush selected"));
       } else {
-        canvas.activate_tool(pos, mods.shift);
+        canvas.activate_tool(interface, pos, mods.shift);
       };
     };
   }

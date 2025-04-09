@@ -1,7 +1,8 @@
 use glutin::window::CursorIcon;
 use glutin_window::GlutinWindow;
+use graphics::Viewport;
 use graphics::context::Context;
-use opengl_graphics::{GlGraphics};
+use opengl_graphics::GlGraphics;
 use piston::event_loop::{EventSettings, Events};
 use piston::input::*;
 use vecmath::Vector2;
@@ -19,6 +20,7 @@ pub trait EventHandler: Sized {
   fn on_mouse_relative(&mut self, _rel: Vector2<f64>) {}
   fn on_mouse_scroll(&mut self, _s: Vector2<f64>, _mods: KeyMods, _pos: Vector2<f64>) {}
   fn on_file_drop(&mut self, _path: PathBuf) {}
+  fn on_resize(&mut self, _viewport: Viewport) {}
   fn on_unfocus(&mut self) {}
   fn on_close(self) {}
 
@@ -79,6 +81,9 @@ pub fn launch<H: EventHandler>(window: &mut GlutinWindow, gl: &mut GlGraphics) {
         Input::Close(_) => {
           event_handler.on_close();
           break;
+        },
+        Input::Resize(resize_args) => {
+          event_handler.on_resize(resize_args.viewport());
         },
         _ => ()
       },

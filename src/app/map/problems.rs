@@ -7,7 +7,7 @@ use opengl_graphics::GlGraphics;
 use vecmath::Vector2;
 
 use crate::app::colors;
-use crate::app::canvas::Camera;
+use crate::app::canvas::CameraCombo;
 use super::{Bundle, Color, Map, Extents, boundary_to_line};
 use crate::util::{fx_hash_map_with_capacity, stringify_color, XYIter};
 use crate::util::uord::UOrd;
@@ -29,34 +29,34 @@ pub enum Problem {
 }
 
 impl Problem {
-  pub fn draw(&self, ctx: Context, extras: bool, camera: &Camera, gl: &mut GlGraphics) {
+  pub fn draw(&self, ctx: Context, extras: bool, camera_combo: CameraCombo, gl: &mut GlGraphics) {
     match *self {
       Problem::InvalidXCrossing(pos) => {
         let pos = vec2_u32_to_f64(pos);
-        draw_cross(pos, ctx, camera, colors::PROBLEM, gl);
+        draw_cross(pos, ctx, camera_combo, colors::PROBLEM, gl);
       },
       Problem::TooLargeBox(extents) => {
         let lower = vec2_u32_to_f64(extents.lower);
         let upper = vec2_u32_to_f64(extents.upper);
         let upper = vecmath::vec2_add(upper, [1.0; 2]);
-        draw_box([lower, upper], ctx, camera, colors::PROBLEM, gl);
+        draw_box([lower, upper], ctx, camera_combo, colors::PROBLEM, gl);
       },
       Problem::TooFewPixels(_, pos) => {
         let pos = vecmath::vec2_add(pos, [0.5; 2]);
-        draw_dot(pos, ctx, camera, colors::PROBLEM, gl);
+        draw_dot(pos, ctx, camera_combo, colors::PROBLEM, gl);
       },
       Problem::LonePixel(pos) if extras => {
         let pos = [pos[0] as f64 + 0.5, pos[1] as f64 + 0.5];
-        draw_dot(pos, ctx, camera, colors::WARNING, gl);
+        draw_dot(pos, ctx, camera_combo, colors::WARNING, gl);
       },
       Problem::FewSharedBorders(_, ref borders) if extras => {
-        if camera.scale_factor() > 1.0 {
+        if camera_combo.camera.scale_factor() > 1.0 {
           // When the zoom is < 100%, draw each border individually
           for &boundary in borders.iter() {
             let (b1, b2) = boundary_to_line(boundary)
               .map(vec2_u32_to_f64)
               .into_tuple_unordered();
-            draw_line(b1, b2, ctx, camera, colors::WARNING, gl);
+            draw_line(b1, b2, ctx, camera_combo, colors::WARNING, gl);
           };
         } else {
           // When the zoom is > 100%, just draw a dot here
@@ -66,7 +66,7 @@ impl Problem {
             .reduce(vecmath::vec2_add)
             .expect("infallible");
           let pos = [pos[0] as f64 / count as f64, pos[1] as f64 / count as f64];
-          draw_dot(pos, ctx, camera, colors::WARNING, gl);
+          draw_dot(pos, ctx, camera_combo, colors::WARNING, gl);
         };
       },
       _ => ()
@@ -103,29 +103,29 @@ impl fmt::Display for Problem {
   }
 }
 
-fn draw_cross(pos: Vector2<f64>, ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
-  let [x, y] = camera.compute_position(pos);
+fn draw_cross(pos: Vector2<f64>, ctx: Context, camera_combo: CameraCombo, color: DrawColor, gl: &mut GlGraphics) {
+  let [x, y] = camera_combo.compute_position(pos);
   graphics::line_from_to(color, 2.0, [x - 8.0, y - 8.0], [x + 8.0, y + 8.0], ctx.transform, gl);
   graphics::line_from_to(color, 2.0, [x - 8.0, y + 8.0], [x + 8.0, y - 8.0], ctx.transform, gl);
 }
 
-fn draw_dot(pos: Vector2<f64>, ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
-  let [x, y] = camera.compute_position(pos);
+fn draw_dot(pos: Vector2<f64>, ctx: Context, camera_combo: CameraCombo, color: DrawColor, gl: &mut GlGraphics) {
+  let [x, y] = camera_combo.compute_position(pos);
   Ellipse::new(color)
     .draw_from_to([x - 4.0, y - 4.0], [x + 4.0, y + 4.0], &Default::default(), ctx.transform, gl);
 }
 
-fn draw_box(bounds: [Vector2<f64>; 2], ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
-  let lower = camera.compute_position(bounds[0]);
-  let upper = camera.compute_position(bounds[1]);
+fn draw_box(bounds: [Vector2<f64>; 2], ctx: Context, camera_combo: CameraCombo, color: DrawColor, gl: &mut GlGraphics) {
+  let lower = camera_combo.compute_position(bounds[0]);
+  let upper = camera_combo.compute_position(bounds[1]);
   Rectangle::new_border(color, 1.0)
     .draw_from_to(lower, upper, &Default::default(), ctx.transform, gl);
 }
 
-fn draw_line(p1: Vector2<f64>, p2: Vector2<f64>, ctx: Context, camera: &Camera, color: DrawColor, gl: &mut GlGraphics) {
-  let p1 = camera.compute_position(p1);
-  let p2 = camera.compute_position(p2);
-  if camera.within_viewport(p1) || camera.within_viewport(p2) {
+fn draw_line(p1: Vector2<f64>, p2: Vector2<f64>, ctx: Context, camera_combo: CameraCombo, color: DrawColor, gl: &mut GlGraphics) {
+  let p1 = camera_combo.compute_position(p1);
+  let p2 = camera_combo.compute_position(p2);
+  if camera_combo.within_viewport(p1) || camera_combo.within_viewport(p2) {
     graphics::line_from_to(color, 2.0, p1, p2, ctx.transform, gl);
   };
 }

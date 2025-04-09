@@ -1,10 +1,10 @@
 //! Code regarding buttons and interactive elements on the screen
-use graphics::Transformed;
+use graphics::{Transformed, Viewport};
 use graphics::context::Context;
 use graphics::types::Color as DrawColor;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use image::codecs::png::PngDecoder;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use opengl_graphics::{Texture, TextureSettings, GlGraphics};
 use vecmath::Vector2;
 
@@ -34,11 +34,34 @@ const PALETTE_BUTTON_TOOLBAR: Palette = Palette {
 pub struct Interface {
   toolbar_buttons: Vec<ToolbarButtonElement>,
   toolbar_plate: PlateComponent,
+  toolbar_height: u32,
   sidebar_buttons: Vec<ButtonElement>,
-  sidebar_plate: PlateComponent
+  sidebar_plate: PlateComponent,
+  sidebar_width: u32,
+  viewport: Viewport
 }
 
 impl Interface {
+  #[inline]
+  pub const fn get_window_size(&self) -> [f64; 2] {
+    self.viewport.window_size
+  }
+
+  #[inline]
+  pub const fn get_window_center(&self) -> [f64; 2] {
+    [self.viewport.window_size[0] / 2.0, self.viewport.window_size[1] / 2.0]
+  }
+
+  #[inline]
+  pub const fn get_toolbar_height(&self) -> u32 {
+    self.toolbar_height
+  }
+
+  #[inline]
+  pub const fn get_sidebar_width(&self) -> u32 {
+    self.sidebar_width
+  }
+
   /// Called when the mouse is clicked to act on the interface and change its state.
   /// If a button was clicked, `Ok` is returned with the appropriate button ID.
   /// If a button was not clicked, a boolean is returned indicating whether or not
@@ -424,10 +447,13 @@ const SIDEBAR_PRIMITIVE: SidebarPrimitive<'static> = &[
   ([40, 0, 20, 20], ButtonId::SidebarToolLasso)
 ];
 
-static TOOLBAR_HEIGHT: OnceCell<u32> = OnceCell::new();
-static SIDEBAR_WIDTH: OnceCell<u32> = OnceCell::new();
+pub fn get_interface(interface_holder: &mut Option<Interface>, viewport: Viewport) -> &Interface {
+  interface_holder.get_or_insert_with(|| construct_interface(viewport))
+}
 
-pub fn construct_interface() -> Interface {
+pub fn construct_interface(viewport: Viewport) -> Interface {
+  let [window_width, window_height] = viewport.window_size;
+
   let mut pos_x = 0;
   let mut toolbar_height = 0;
   let mut toolbar_buttons = Vec::with_capacity(TOOLBAR_PRIMITIVE.len());
@@ -464,31 +490,21 @@ pub fn construct_interface() -> Interface {
     buttons.push(ButtonElement { base, id });
   };
 
-  let toolbar_plate_size = [crate::WINDOW_WIDTH as f64, toolbar_height as f64];
+  let toolbar_plate_size = [window_width, toolbar_height as f64];
   let toolbar_plate = PlateComponent { pos: [0.0, 0.0], size: toolbar_plate_size };
 
-  let sidebar_plate_size = [sidebar_width as f64, crate::WINDOW_HEIGHT as f64];
+  let sidebar_plate_size = [sidebar_width as f64, window_height];
   let sidebar_plate = PlateComponent { pos: [0.0, toolbar_height as f64], size: sidebar_plate_size };
-
-  let _ = TOOLBAR_HEIGHT.set(toolbar_height);
-  let _ = SIDEBAR_WIDTH.set(sidebar_width);
 
   Interface {
     sidebar_buttons: buttons,
     toolbar_buttons,
     toolbar_plate,
-    sidebar_plate
+    toolbar_height,
+    sidebar_plate,
+    sidebar_width,
+    viewport
   }
-}
-
-#[inline]
-pub fn get_toolbar_height() -> f64 {
-  TOOLBAR_HEIGHT.get().map_or(20, u32::clone) as f64
-}
-
-#[inline]
-pub fn get_sidebar_width() -> f64 {
-  SIDEBAR_WIDTH.get().map_or(28, u32::clone) as f64
 }
 
 fn get_sprite(sprite_coords: [u32; 4]) -> Texture {

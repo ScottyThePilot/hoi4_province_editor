@@ -11,8 +11,8 @@ use vecmath::{Matrix2x3, Vector2};
 use super::{colors, FontGlyphCache};
 use super::alerts::Alerts;
 use super::map::*;
+use super::interface::Interface;
 use super::format::DefinitionKind;
-use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use crate::config::Config;
 use crate::font::{self, FONT_SIZE};
 use crate::util::stringify_color;
@@ -25,7 +25,6 @@ use std::io::BufWriter;
 use std::fmt;
 
 const ZOOM_SENSITIVITY: f64 = 0.125;
-const WINDOW_CENTER: Vector2<f64> = [WINDOW_WIDTH as f64 / 2.0, WINDOW_HEIGHT as f64 / 2.0];
 
 pub struct Canvas {
   bundle: Bundle,
@@ -98,35 +97,34 @@ impl Canvas {
     &self.bundle.config
   }
 
-  pub fn draw(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+  pub fn draw(&self, ctx: Context, interface: &Interface, glyph_cache: &mut FontGlyphCache, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     use super::alerts::PADDING;
-    use super::interface::get_sidebar_width;
 
-    let transform = ctx.transform.append_transform(self.camera.display_matrix);
+    let transform = ctx.transform.append_transform(self.camera.display_matrix(interface));
     graphics::image(&self.texture, transform, gl);
 
     if self.camera.scale_factor() > 1.0 && self.show_province_boundaries {
-      self.draw_boundaries(ctx, gl);
+      self.draw_boundaries(ctx, interface, gl);
     };
 
     if self.view_mode == ViewMode::Adjacencies {
-      self.draw_adjacencies(ctx, cursor_pos, gl);
+      self.draw_adjacencies(ctx, interface, cursor_pos, gl);
     } else if self.camera.scale_factor() > 1.0 && self.show_province_ids {
-      self.draw_ids(ctx, glyph_cache, gl);
+      self.draw_ids(ctx, interface, glyph_cache, gl);
     };
 
-    self.draw_problems(ctx, gl);
+    self.draw_problems(ctx, interface, gl);
 
-    self.draw_tool(ctx, cursor_pos, gl);
+    self.draw_tool(ctx, interface, cursor_pos, gl);
 
-    let camera_info = self.camera_info(cursor_pos);
-    let pos = [PADDING[0] + get_sidebar_width(), WINDOW_HEIGHT as f64 - PADDING[1] * 1.25];
+    let camera_info = self.camera_info(interface, cursor_pos);
+    let pos = [PADDING[0] + interface.get_sidebar_width() as f64, interface.get_window_size()[1] - PADDING[1] * 1.25];
     let transform = ctx.transform.trans_pos(pos);
     graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
       .expect("unable to draw text");
   }
 
-  fn draw_ids(&self, ctx: Context, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
+  fn draw_ids(&self, ctx: Context, interface: &Interface, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
     for (_color, province_data) in self.bundle.map.iter_province_data() {
       let preserved_id = province_data.preserved_id
         .map_or_else(|| "X".to_owned(), |id| id.to_string());
@@ -144,8 +142,8 @@ impl Canvas {
       };
 
       let center_of_mass = vecmath::vec2_add([0.5, 0.5], province_data.center_of_mass());
-      let center_of_mass = self.camera.compute_position(center_of_mass);
-      if self.camera.within_viewport(center_of_mass) {
+      let center_of_mass = self.camera.compute_position(interface, center_of_mass);
+      if self.camera.within_viewport(interface, center_of_mass) {
         let preserved_id = preserved_id.to_string();
         let offset = [
           font::get_width_metric_str(&preserved_id) / -2.0,
@@ -158,12 +156,12 @@ impl Canvas {
     };
   }
 
-  fn draw_adjacencies(&self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+  fn draw_adjacencies(&self, ctx: Context, interface: &Interface, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     // Draw the adjacency the user is currently creating
     if let (Some(sel), Some(kind), Some(cursor_pos)) = (self.tool.adjacency_selection, self.tool.adjacency_brush, cursor_pos) {
       let color = kind.draw_color();
       let pos = self.bundle.map.get_province(sel).center_of_mass();
-      let pos = self.camera.compute_position(pos);
+      let pos = self.camera.compute_position(interface, pos);
 
       graphics::line_from_to(color, 2.0, pos, cursor_pos, ctx.transform, gl);
     };
@@ -173,8 +171,8 @@ impl Canvas {
       if connection_data.kind != ConnectionKind::Impassable {
         let color = connection_data.kind.draw_color();
         let (center1, center2) = self.bundle.map.get_connection_positions(rel);
-        let center1 = self.camera.compute_position(center1);
-        let center2 = self.camera.compute_position(center2);
+        let center1 = self.camera.compute_position(interface, center1);
+        let center2 = self.camera.compute_position(interface, center2);
 
         graphics::line_from_to(color, 2.0, center1, center2, ctx.transform, gl);
       };
@@ -186,9 +184,9 @@ impl Canvas {
         let rel = boundary.map(|pos| self.bundle.map.get_color_at(pos));
         if self.bundle.map.get_connection(rel).kind == ConnectionKind::Impassable {
           let (b1, b2) = boundary_to_line(boundary).into_tuple();
-          let b1 = self.camera.compute_position([b1[0] as f64, b1[1] as f64]);
-          let b2 = self.camera.compute_position([b2[0] as f64, b2[1] as f64]);
-          if self.camera.within_viewport(b1) || self.camera.within_viewport(b2) {
+          let b1 = self.camera.compute_position(interface, [b1[0] as f64, b1[1] as f64]);
+          let b2 = self.camera.compute_position(interface, [b2[0] as f64, b2[1] as f64]);
+          if self.camera.within_viewport(interface, b1) || self.camera.within_viewport(interface, b2) {
             graphics::line_from_to(colors::ADJ_IMPASSABLE, 2.0, b1, b2, ctx.transform, gl);
           };
         };
@@ -196,12 +194,12 @@ impl Canvas {
     };
   }
 
-  fn draw_boundaries(&self, ctx: Context, gl: &mut GlGraphics) {
+  fn draw_boundaries(&self, ctx: Context, interface: &Interface, gl: &mut GlGraphics) {
     for (boundary, _is_special) in self.bundle.map.iter_boundaries() {
       let (b1, b2) = boundary_to_line(boundary).into_tuple();
-      let b1 = self.camera.compute_position([b1[0] as f64, b1[1] as f64]);
-      let b2 = self.camera.compute_position([b2[0] as f64, b2[1] as f64]);
-      if self.camera.within_viewport(b1) || self.camera.within_viewport(b2) {
+      let b1 = self.camera.compute_position(interface, [b1[0] as f64, b1[1] as f64]);
+      let b2 = self.camera.compute_position(interface, [b2[0] as f64, b2[1] as f64]);
+      if self.camera.within_viewport(interface, b1) || self.camera.within_viewport(interface, b2) {
         let color = match self.view_mode {
           ViewMode::Color | ViewMode::Adjacencies => {
             drawable_color(boundary_color(&self.bundle.map, boundary))
@@ -216,14 +214,14 @@ impl Canvas {
     };
   }
 
-  fn draw_problems(&self, ctx: Context, gl: &mut GlGraphics) {
+  fn draw_problems(&self, ctx: Context, interface: &Interface, gl: &mut GlGraphics) {
     let extras = self.bundle.config.extra_warnings.enabled;
     for problem in self.problems.iter() {
-      problem.draw(ctx, extras, &self.camera, gl);
+      problem.draw(ctx, extras, CameraCombo { camera: &self.camera, interface }, gl);
     };
   }
 
-  fn draw_tool(&self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+  fn draw_tool(&self, ctx: Context, interface: &Interface, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     let color = if self.tool.color_brush.is_some() { colors::WHITE } else { colors::WHITE_T };
     match (self.view_mode, &self.tool.mode, cursor_pos) {
       (ViewMode::Color, ToolMode::PaintArea, Some(cursor_pos)) => {
@@ -234,10 +232,10 @@ impl Canvas {
       },
       (ViewMode::Color, ToolMode::Lasso(lasso), cursor_pos) => {
         let can_finish = cursor_pos
-          .map(|cursor_pos| lasso.can_finish(&self.camera, cursor_pos))
+          .map(|cursor_pos| lasso.can_finish(interface, &self.camera, cursor_pos))
           .unwrap_or(false);
         let points = lasso.iter()
-          .map(|pos| self.camera.compute_position(pos))
+          .map(|pos| self.camera.compute_position(interface, pos))
           .collect::<Vec<Vector2<f64>>>();
         let first_point = points.first().cloned();
         let last_point = if can_finish { first_point } else { cursor_pos };
@@ -369,14 +367,14 @@ impl Canvas {
     self.tool.mode = mode;
   }
 
-  pub fn cycle_tool_brush(&mut self, cursor_pos: Option<Vector2<f64>>, alerts: &mut Alerts) {
+  pub fn cycle_tool_brush(&mut self, interface: &Interface, cursor_pos: Option<Vector2<f64>>, alerts: &mut Alerts) {
     match self.view_mode {
       ViewMode::Color => {
         let kind = self.tool.kind_brush
           .map(ProvinceKind::from)
           .or_else(|| {
             let pos = cursor_pos.and_then(|cursor_pos| {
-              self.camera.relative_position_int(cursor_pos)
+              self.camera.relative_position_int(interface, cursor_pos)
             })?;
             Some(self.bundle.map.get_province_at(pos).kind)
           })
@@ -413,8 +411,8 @@ impl Canvas {
     };
   }
 
-  pub fn pick_tool_brush(&mut self, cursor_pos: Vector2<f64>, alerts: &mut Alerts) {
-    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
+  pub fn pick_tool_brush(&mut self, interface: &Interface, cursor_pos: Vector2<f64>, alerts: &mut Alerts) {
+    if let Some(pos) = self.camera.relative_position_int(interface, cursor_pos) {
       let color = self.bundle.map.get_color_at(pos);
       let province_data = self.bundle.map.get_province_at(pos);
       match self.view_mode {
@@ -453,15 +451,15 @@ impl Canvas {
   }
 
   /// Activates the tool, ie, performs a left-click action
-  pub fn activate_tool(&mut self, cursor_pos: Vector2<f64>, modifier: bool) {
+  pub fn activate_tool(&mut self, interface: &Interface, cursor_pos: Vector2<f64>, modifier: bool) {
     match self.view_mode {
       ViewMode::Color => match self.tool.mode {
-        ToolMode::PaintArea => self.tool_paint_brush(cursor_pos),
-        ToolMode::PaintBucket => self.tool_paint_bucket(cursor_pos, modifier),
-        ToolMode::Lasso(_) => self.tool_lasso_add_point(cursor_pos)
+        ToolMode::PaintArea => self.tool_paint_brush(interface, cursor_pos),
+        ToolMode::PaintBucket => self.tool_paint_bucket(interface, cursor_pos, modifier),
+        ToolMode::Lasso(_) => self.tool_lasso_add_point(interface, cursor_pos)
       },
-      ViewMode::Adjacencies => self.tool_connect_activate(cursor_pos),
-      _ => self.tool_paint_brush(cursor_pos)
+      ViewMode::Adjacencies => self.tool_connect_activate(interface, cursor_pos),
+      _ => self.tool_paint_brush(interface, cursor_pos)
     };
   }
 
@@ -486,13 +484,13 @@ impl Canvas {
     };
   }
 
-  fn tool_lasso_add_point(&mut self, cursor_pos: Vector2<f64>) {
+  fn tool_lasso_add_point(&mut self, interface: &Interface, cursor_pos: Vector2<f64>) {
     if let ToolMode::Lasso(lasso) = &mut self.tool.mode {
-      if lasso.can_finish(&self.camera, cursor_pos) {
+      if lasso.can_finish(interface, &self.camera, cursor_pos) {
         let lasso = lasso.drain();
         self.tool_lasso_finish(lasso);
       } else {
-        let point = self.camera.relative_position(cursor_pos);
+        let point = self.camera.relative_position(interface, cursor_pos);
         let point = if self.tool.lasso_snap {
           [point[0].round(), point[1].round()]
         } else {
@@ -516,10 +514,10 @@ impl Canvas {
     };
   }
 
-  fn tool_paint_brush(&mut self, cursor_pos: Vector2<f64>) {
-    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
+  fn tool_paint_brush(&mut self, interface: &Interface, cursor_pos: Vector2<f64>) {
+    if let Some(pos) = self.camera.relative_position_int(interface, cursor_pos) {
       if let (Some(color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
-        let pos = self.camera.relative_position(cursor_pos);
+        let pos = self.camera.relative_position(interface, cursor_pos);
         if let Some(extents) = self.history.paint_pixel_area(&mut self.bundle, pos, self.tool.radius, color, self.tool.brush_mask, self.tool.id) {
           self.problems.clear();
           self.modified = true;
@@ -548,8 +546,8 @@ impl Canvas {
     self.tool.id += 1;
   }
 
-  fn tool_paint_bucket(&mut self, cursor_pos: Vector2<f64>, fill_all: bool) {
-    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
+  fn tool_paint_bucket(&mut self, interface: &Interface, cursor_pos: Vector2<f64>, fill_all: bool) {
+    if let Some(pos) = self.camera.relative_position_int(interface, cursor_pos) {
       if let (Some(fill_color), ViewMode::Color) = (self.tool.color_brush, self.view_mode) {
         let result = if fill_all {
           self.history.paint_entire_province(&mut self.bundle, pos, fill_color)
@@ -566,8 +564,8 @@ impl Canvas {
     };
   }
 
-  fn tool_connect_activate(&mut self, cursor_pos: Vector2<f64>) {
-    if let Some(pos) = self.camera.relative_position_int(cursor_pos) {
+  fn tool_connect_activate(&mut self, interface: &Interface, cursor_pos: Vector2<f64>) {
+    if let Some(pos) = self.camera.relative_position_int(interface, cursor_pos) {
       let which = self.bundle.map.get_color_at(pos);
       if let Some(kind) = self.tool.adjacency_brush {
         if let Some(color) = self.tool.adjacency_selection.take() {
@@ -662,10 +660,10 @@ impl Canvas {
     }
   }
 
-  fn camera_info(&self, cursor_pos: Option<Vector2<f64>>) -> String {
+  fn camera_info(&self, interface: &Interface, cursor_pos: Option<Vector2<f64>>) -> String {
     let zoom_info = format!("{:.2}%", self.camera.scale_factor() * 100.0);
     let cursor_info = cursor_pos
-      .and_then(|cursor_pos| self.camera.relative_position_int(cursor_pos))
+      .and_then(|cursor_pos| self.camera.relative_position_int(interface, cursor_pos))
       .map_or_else(String::new, |[x, y]| format!("{}, {} px", x, y));
     let brush_info = self.brush_info();
     let brush_mask_info = self.brush_mask_info();
@@ -752,9 +750,9 @@ impl ToolMode {
 pub struct Lasso(pub Vec<Vector2<f64>>);
 
 impl Lasso {
-  fn can_finish(&self, camera: &Camera, cursor_pos: Vector2<f64>) -> bool {
+  fn can_finish(&self, interface: &Interface, camera: &Camera, cursor_pos: Vector2<f64>) -> bool {
     if let &[point, _, _, ..] = self.0.as_slice() {
-      let point = camera.compute_position(point);
+      let point = camera.compute_position(interface, point);
       vecmath::vec2_len(vecmath::vec2_sub(point, cursor_pos)) < 5.0
     } else {
       false
@@ -822,6 +820,35 @@ impl Default for ViewMode {
   }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CameraCombo<'a> {
+  pub(super) camera: &'a Camera,
+  pub(super) interface: &'a Interface
+}
+
+#[allow(unused)]
+impl<'a> CameraCombo<'a> {
+  #[inline]
+  pub(super) fn relative_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
+    self.camera.relative_position(self.interface, pos)
+  }
+
+  #[inline]
+  pub(super) fn relative_position_int(&self, pos: Vector2<f64>) -> Option<Vector2<u32>> {
+    self.camera.relative_position_int(self.interface, pos)
+  }
+
+  #[inline]
+  pub(super) fn compute_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
+    self.camera.compute_position(self.interface, pos)
+  }
+
+  #[inline]
+  pub(super) fn within_viewport(&self, pos: Vector2<f64>) -> bool {
+    self.camera.within_viewport(self.interface, pos)
+  }
+}
+
 #[derive(Debug)]
 pub struct Camera {
   pub texture_size: Vector2<f64>,
@@ -835,8 +862,7 @@ impl Camera {
     let (width, height) = texture.get_size();
     let texture_size = [width as f64, height as f64];
     let display_matrix = vecmath::mat2x3_id()
-      .trans_pos(vecmath::vec2_scale(texture_size, -0.5))
-      .trans_pos(WINDOW_CENTER);
+      .trans_pos(vecmath::vec2_scale(texture_size, -0.5));
     Camera {
       texture_size,
       display_matrix,
@@ -851,20 +877,21 @@ impl Camera {
     };
   }
 
-  pub fn on_mouse_zoom(&mut self, dz: f64, cursor_pos: Vector2<f64>) {
+  pub fn on_mouse_zoom(&mut self, interface: &Interface, dz: f64, cursor_pos: Vector2<f64>) {
     let zoom = 2.0f64.powf(dz * ZOOM_SENSITIVITY);
-    let cursor_rel = self.relative_position(cursor_pos);
-    let cursor_rel_neg = vecmath::vec2_neg(cursor_rel);
+    let window_center = interface.get_window_center();
+    let cursor_rel = self.relative_position(interface, cursor_pos);
     self.display_matrix = self.display_matrix
       .trans_pos(cursor_rel)
+      .trans_pos(window_center)
       .zoom(zoom)
-      .trans_pos(cursor_rel_neg);
+      .trans_pos(vecmath::vec2_neg(cursor_rel))
+      .trans_pos(vecmath::vec2_neg(window_center));
   }
 
   pub fn reset(&mut self) {
     self.display_matrix = vecmath::mat2x3_id()
-      .trans_pos(vecmath::vec2_scale(self.texture_size, -0.5))
-      .trans_pos(WINDOW_CENTER);
+      .trans_pos(vecmath::vec2_scale(self.texture_size, -0.5));
   }
 
   pub fn set_panning(&mut self, panning: bool) {
@@ -872,24 +899,28 @@ impl Camera {
   }
 
   /// Converts a point from camera space to map space
-  pub(super) fn relative_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
-    vecmath::row_mat2x3_transform_pos2(self.display_matrix_inv(), pos)
+  pub(super) fn relative_position(&self, interface: &Interface, pos: Vector2<f64>) -> Vector2<f64> {
+    vecmath::row_mat2x3_transform_pos2(self.display_matrix_inv(interface), pos)
   }
 
-  pub(super) fn relative_position_int(&self, pos: Vector2<f64>) -> Option<Vector2<u32>> {
-    let pos = self.relative_position(pos);
+  pub(super) fn relative_position_int(&self, interface: &Interface, pos: Vector2<f64>) -> Option<Vector2<u32>> {
+    let pos = self.relative_position(interface, pos);
     self.within_dimensions(pos)
       .then(|| [pos[0] as u32, pos[1] as u32])
   }
 
   /// Converts from map space to camera space
-  pub(super) fn compute_position(&self, pos: Vector2<f64>) -> Vector2<f64> {
-    vecmath::row_mat2x3_transform_pos2(self.display_matrix, pos)
+  pub(super) fn compute_position(&self, interface: &Interface, pos: Vector2<f64>) -> Vector2<f64> {
+    vecmath::row_mat2x3_transform_pos2(self.display_matrix(interface), pos)
+  }
+
+  fn display_matrix(&self, interface: &Interface) -> Matrix2x3<f64> {
+    self.display_matrix.trans_pos(interface.get_window_center())
   }
 
   #[inline]
-  fn display_matrix_inv(&self) -> Matrix2x3<f64> {
-    vecmath::mat2x3_inv(self.display_matrix)
+  fn display_matrix_inv(&self, interface: &Interface) -> Matrix2x3<f64> {
+    vecmath::mat2x3_inv(self.display_matrix(interface))
   }
 
   #[inline]
@@ -904,9 +935,9 @@ impl Camera {
   }
 
   #[inline]
-  pub(super) fn within_viewport(&self, pos: Vector2<f64>) -> bool {
-    0.0 <= pos[0] && pos[0] < WINDOW_WIDTH as f64 &&
-    0.0 <= pos[1] && pos[1] < WINDOW_HEIGHT as f64
+  pub(super) fn within_viewport(&self, interface: &Interface, pos: Vector2<f64>) -> bool {
+    0.0 <= pos[0] && pos[0] < interface.get_window_size()[0] as f64 &&
+    0.0 <= pos[1] && pos[1] < interface.get_window_size()[1] as f64
   }
 }
 

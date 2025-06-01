@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "hoi4_province_editor"
-version = "0.3.7-rc1"
+version = "0.3.7"
 dependencies = [
  "ccl-fxhash",
  "chrono",

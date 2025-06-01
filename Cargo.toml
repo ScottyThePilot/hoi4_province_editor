@@ -1,6 +1,6 @@
 [package]
 name = "hoi4_province_editor"
-version = "0.3.6"
+version = "0.3.7-rc1"
 authors = ["ScottyThePilot <scotty.codes@gmail.com>"]
 edition = "2021"
 description = "Map editor application for Hearts of Iron IV"
@@ -11,7 +11,7 @@ license = "MIT"
 [dependencies]
 ccl-fxhash = "3.0"
 chrono = "0.4"
-color-backtrace = "0.5"
+color-backtrace = "0.7"
 dunce = "1.0"
 geo = "0.20"
 glutin = "0.26"
@@ -36,11 +36,11 @@ zip = "0.6"
 
 [profile.dev]
 opt-level = 1
-debug = 2
+debug = "full"
 
 [profile.release]
 opt-level = 3
-debug = 2
+debug = "full"
 
 [features]
 debug-mode = []

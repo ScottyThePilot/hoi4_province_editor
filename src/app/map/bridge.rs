@@ -170,6 +170,13 @@ fn construct_map_data(
     };
   };
 
+  // strip colors from the color index that failed to have province data created for them
+  for color_index_entry in color_index.iter_mut() {
+    *color_index_entry = color_index_entry.filter(|color| province_data_map.contains_key(color));
+  };
+
+  let get_color_index = |id: u32| get_color_index(&color_index, id);
+
   province_data_map.shrink_to_fit();
   let _ = definition_map;
 
@@ -177,13 +184,8 @@ fn construct_map_data(
   // since the adjacencies map is indexed by color instead of id
   let mut connection_data_map = fx_hash_map_with_capacity(adjacencies_table.len());
   for a in adjacencies_table.into_iter() {
-    if let Some(rel) = get_color_indexes(&color_index, [a.from_id, a.to_id]) {
-      let connection_data = ConnectionData::from_adjacency(a, |through| {
-        get_color_index(&color_index, through)
-          .expect("adjacency present for an id that does not exist")
-      });
-
-      if let Some(connection_data) = connection_data {
+    if let Some(rel) = UOrd::new(a.from_id, a.to_id).map_maybe(get_color_index) {
+      if let Some(connection_data) = ConnectionData::from_adjacency(a, get_color_index) {
         connection_data_map.insert(rel, Arc::new(connection_data));
       };
     };
@@ -201,7 +203,7 @@ fn construct_map_data(
     );
   };
 
-  let id_data = config.preserve_ids.then(|| preserved_id_count );
+  let id_data = config.preserve_ids.then(|| preserved_id_count);
 
   let mut map = Map {
     base: MapBase {
@@ -241,13 +243,13 @@ pub(super) fn recolor_everything(
 
   let mut new_connection_data_map = fx_hash_map_with_capacity(connection_data_map.len());
   for (previous_rel, mut connection_data) in connection_data_map.drain() {
-    let rel = previous_rel.map(|color| replacement_map[&color]);
     // Replace `through`'s color with the new one
     let connection_data_mut = Arc::make_mut(&mut connection_data);
-    connection_data_mut.through = connection_data_mut.through.map(|t| replacement_map[&t]);
-    // This operation should never overwrite an existing entry
-    let opt = new_connection_data_map.insert(rel, connection_data);
-    debug_assert_eq!(opt, None);
+    connection_data_mut.through = connection_data_mut.through
+      .and_then(|t| replacement_map.get(&t).copied());
+    if let Some(rel) = previous_rel.map_maybe(|color| replacement_map.get(&color).copied()) {
+      new_connection_data_map.insert(rel, connection_data);
+    };
   };
 
   *connection_data_map = new_connection_data_map;

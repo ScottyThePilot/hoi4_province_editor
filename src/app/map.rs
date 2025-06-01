@@ -979,10 +979,13 @@ impl ConnectionData {
   }
 
   pub fn from_adjacency<F>(adjacency: Adjacency, through: F) -> Option<Self>
-  where F: Fn(u32) -> Color {
+  where F: Fn(u32) -> Option<Color> {
     Some(ConnectionData {
       kind: ConnectionKind::from_adjacency_kind(adjacency.kind)?,
-      through: adjacency.through.map(through),
+      through: match adjacency.through {
+        Some(id) => Some(through(id)?),
+        None => None
+      },
       start: adjacency.start,
       stop: adjacency.stop,
       rule_name: adjacency.rule_name,

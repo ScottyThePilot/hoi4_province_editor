@@ -1,6 +1,7 @@
 //! Utilities for parsing text-based game data files
-mod adjacency;
+#[macro_use]
 mod csv;
+mod adjacency;
 mod definition;
 
 use thiserror::Error;

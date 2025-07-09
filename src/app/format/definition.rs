@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-use super::csv::{ParseCsv, Parsed, CsvError, CsvLine};
+use super::csv::{ParseCsv, Parsed, CsvError};
 use super::ParseError;
 
 use std::str::FromStr;
@@ -9,7 +9,7 @@ use std::convert::TryFrom;
 use std::fmt;
 
 /// I don't know what this line does, but my map breaks if I remove it
-const HEADER_LINE: &str = "0;0;0;0;land;false;unknown;0";
+const HEADER_LINE: &[&str] = &["0", "0", "0", "0", "land", "false", "unknown", "0"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Definition {
@@ -28,18 +28,39 @@ pub struct Definition {
 }
 
 impl ParseCsv for Definition {
-  const HEADER_LINE: Option<&'static str> = Some(HEADER_LINE);
-  const FOOTER_LINE: Option<&'static str> = None;
+  const HEADER_RECORD: Option<&'static [&'static str]> = Some(HEADER_LINE);
+  const FOOTER_RECORD: Option<&'static [&'static str]> = None;
 
-  fn parse_line(line: CsvLine<'_>) -> Result<Self, CsvError> {
-    let (Parsed(id), Parsed(r), Parsed(g), Parsed(b), Parsed(kind), Parsed(Bool(coastal)), terrain, Parsed(continent)) =
-      line.parse::<(Parsed<u32>, Parsed<u8>, Parsed<u8>, Parsed<u8>, Parsed<DefinitionKind>, Parsed<Bool>, String, Parsed<u16>)>()?;
+  fn deserialize_record(line: csv::StringRecord) -> Result<Self, CsvError> {
+    parse_record!(let (
+      Parsed(id) => Parsed<u32>,
+      Parsed(r) => Parsed<u8>,
+      Parsed(g) => Parsed<u8>,
+      Parsed(b) => Parsed<u8>,
+      Parsed(kind) => Parsed<DefinitionKind>,
+      Parsed(Bool(coastal)) => Parsed<Bool>,
+      terrain => String,
+      Parsed(continent) => Parsed<u16>
+    ) = &line);
 
     Ok(Definition {
       id, rgb: [r, g, b], kind, coastal,
       terrain: terrain.to_lowercase(),
       continent
     })
+  }
+
+  fn serialize_record(&self) -> csv::StringRecord {
+    csv::StringRecord::from(vec![
+      self.id.to_string(),
+      self.rgb[0].to_string(),
+      self.rgb[1].to_string(),
+      self.rgb[2].to_string(),
+      self.kind.to_string(),
+      self.coastal.to_string(),
+      self.terrain.clone(),
+      self.continent.to_string()
+    ])
   }
 }
 
@@ -140,5 +161,17 @@ impl FromStr for Bool {
       s => s.to_lowercase()
         .parse::<bool>().map(Bool)
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{Definition, ParseCsv};
+
+  #[test]
+  fn test_definition() {
+    const SAMPLE: &str = include_str!("./samples/definition.csv");
+    let definition = Definition::read_records(SAMPLE.as_bytes()).unwrap();
+    assert_eq!(definition.len(), 13375);
   }
 }

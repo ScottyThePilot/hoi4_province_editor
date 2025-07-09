@@ -145,6 +145,7 @@ fn construct_map_data(
     color_index[d.id as usize] = Some(d.rgb);
   };
 
+  // TODO: rework? this will probably crash for certain invalid definition tables
   assert_eq!(preserved_id_count, definition_table.len() as u32);
 
   // Initially convert the definition table into a province data map
@@ -182,11 +183,14 @@ fn construct_map_data(
 
   // Loop through the entries in the adjacencies table, converting ids to colors using `color_index`,
   // since the adjacencies map is indexed by color instead of id
+  let mut preserved_unsupported_adjacencies = Vec::new();
   let mut connection_data_map = fx_hash_map_with_capacity(adjacencies_table.len());
   for a in adjacencies_table.into_iter() {
     if let Some(rel) = UOrd::new(a.from_id, a.to_id).map_maybe(get_color_index) {
-      if let Some(connection_data) = ConnectionData::from_adjacency(a, get_color_index) {
+      if let Some(connection_data) = ConnectionData::from_adjacency(a.clone(), get_color_index) {
         connection_data_map.insert(rel, Arc::new(connection_data));
+      } else {
+        preserved_unsupported_adjacencies.push(a);
       };
     };
   };
@@ -212,6 +216,7 @@ fn construct_map_data(
       connection_data_map: Arc::new(connection_data_map),
     },
     boundaries: FxHashMap::default(),
+    preserved_unsupported_adjacencies,
     preserved_id_count: id_data
   };
 
@@ -403,6 +408,7 @@ fn deconstruct_map_data_preserve_ids(bundle: &Bundle) -> Result<MapData, Error> 
     adjacencies_table.push(connection_data.to_adjacency(rel, |t| color_index[&t]));
   };
 
+  adjacencies_table.extend_from_slice(&bundle.map.preserved_unsupported_adjacencies);
   adjacencies_table.sort();
 
   let id_changes = if changes.is_empty() { None } else { Some(changes) };
@@ -443,11 +449,11 @@ pub fn read_rgb_bmp_image<R: Read>(reader: R) -> Result<RgbImage, Error> {
 }
 
 fn read_definition_table<R: Read>(reader: R) -> Result<Vec<Definition>, Error> {
-  Definition::parse_all(read_all(reader)?).map_err(|err| Error::Csv(err, "definition.csv"))
+  Definition::read_records(reader).map_err(|err| Error::Csv(err, "definition.csv"))
 }
 
 fn read_adjacencies_table<R: Read>(reader: R) -> Result<Vec<Adjacency>, Error> {
-  Adjacency::parse_all(read_all(reader)?).map_err(|err| Error::Csv(err, "adjacencies.csv"))
+  Adjacency::read_records(reader).map_err(|err| Error::Csv(err, "adjacencies.csv"))
 }
 
 pub fn write_rgb_bmp_image<W: Write>(mut writer: W, province_image: &RgbImage) -> Result<(), Error> {
@@ -456,14 +462,12 @@ pub fn write_rgb_bmp_image<W: Write>(mut writer: W, province_image: &RgbImage) -
   encoder.encode(province_image.as_raw(), width, height, ColorType::Rgb8).map_err(From::from)
 }
 
-fn write_definition_table<W: Write>(mut writer: W, definition_table: Vec<Definition>) -> Result<(), Error> {
-  let data = Definition::stringify_all(&definition_table);
-  writer.write_all(data.as_bytes()).map_err(From::from)
+fn write_definition_table<W: Write>(writer: W, definition_table: Vec<Definition>) -> Result<(), Error> {
+  Definition::write_records(&definition_table, writer).map_err(|err| Error::Csv(err, "definition.csv"))
 }
 
-fn write_adjacencies_table<W: Write>(mut writer: W, adjacencies_table: Vec<Adjacency>) -> Result<(), Error> {
-  let data = Adjacency::stringify_all(&adjacencies_table);
-  writer.write_all(data.as_bytes()).map_err(From::from)
+fn write_adjacencies_table<W: Write>(writer: W, adjacencies_table: Vec<Adjacency>) -> Result<(), Error> {
+  Adjacency::write_records(&adjacencies_table, writer).map_err(|err| Error::Csv(err, "adjacencies.csv"))
 }
 
 fn write_id_changes<W: Write>(mut writer: W, id_changes: Vec<IdChange>) -> Result<(), Error> {
@@ -481,14 +485,8 @@ fn read_all<R: Read>(mut reader: R) -> io::Result<Cursor<Vec<u8>>> {
   Ok(Cursor::new(buf))
 }
 
-fn get_color_indexes(color_index: &[Option<Color>], [a, b]: [u32; 2]) -> Option<UOrd<Color>> {
-  let a = get_color_index(color_index, a)?;
-  let b = get_color_index(color_index, b)?;
-  Some(UOrd::new(a, b))
-}
-
 fn get_color_index(color_index: &[Option<Color>], id: u32) -> Option<Color> {
-  if let Some(&Some(color)) = color_index.get(id as usize) { Some(color) } else { None }
+  color_index.get(id as usize).and_then(Clone::clone)
 }
 
 fn maybe_not_found<T>(err: io::Result<T>) -> io::Result<Option<T>> {

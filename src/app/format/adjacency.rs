@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-use super::csv::{ParseCsv, Parsed, CsvError, CsvLine};
+use super::csv::{ParseCsv, Parsed, CsvError};
 use super::ParseError;
 
 use std::str::FromStr;
@@ -8,10 +8,10 @@ use std::cmp::{Ord, PartialOrd, Ordering};
 use std::convert::TryFrom;
 use std::fmt;
 
-const HEADER_LINE: &str = "From;To;Type;Through;start_x;start_y;stop_x;stop_y;adjacency_rule_name;Comment";
+const HEADER_LINE: &[&str] = &["From", "To", "Type", "Through", "start_x", "start_y", "stop_x", "stop_y", "adjacency_rule_name", "Comment"];
 
 /// I don't know what this line is supposed to do, but every `adjacencies.csv` I've looked at has it
-const FOOTER_LINE: &str = "-1;-1;;-1;-1;-1;-1;-1;-1";
+const FOOTER_LINE: &[&str] = &["-1", "-1", "", "-1", "-1", "-1", "-1", "-1", "-1"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Adjacency {
@@ -34,20 +34,43 @@ pub struct Adjacency {
 }
 
 impl ParseCsv for Adjacency {
-  const HEADER_LINE: Option<&'static str> = Some(HEADER_LINE);
-  const FOOTER_LINE: Option<&'static str> = Some(FOOTER_LINE);
+  const HEADER_RECORD: Option<&'static [&'static str]> = Some(HEADER_LINE);
+  const FOOTER_RECORD: Option<&'static [&'static str]> = Some(FOOTER_LINE);
 
-  fn parse_line(line: CsvLine<'_>) -> Result<Self, CsvError> {
-    let (Parsed(from_id), Parsed(to_id), Parsed(kind), Parsed(Num(through)), Parsed(Num(start_x)), Parsed(Num(start_y)), Parsed(Num(stop_x)), Parsed(Num(stop_y)), rule_name, comment) =
-      line.parse::<(Parsed<u32>, Parsed<u32>, Parsed<AdjacencyKind>, Parsed<Num>, Parsed<Num>, Parsed<Num>, Parsed<Num>, Parsed<Num>, Option<String>, Option<String>)>()?;
+  fn deserialize_record(line: csv::StringRecord) -> Result<Self, CsvError> {
+    parse_record!(let (
+      Parsed(from_id) => Parsed<u32>,
+      Parsed(to_id) => Parsed<u32>,
+      Parsed(kind) => Parsed<AdjacencyKind>,
+      Parsed(Num(through)) => Parsed<Num>,
+      Parsed(Num(start_x)) => Parsed<Num>,
+      Parsed(Num(start_y)) => Parsed<Num>,
+      Parsed(Num(stop_x)) => Parsed<Num>,
+      Parsed(Num(stop_y)) => Parsed<Num>,
+      rule_name => Option<String>,
+      comment => Option<String>
+    ) = &line);
 
     Ok(Adjacency {
       from_id, to_id, kind, through,
       start: Option::zip(start_x, start_y).map(|(x, y)| [x, y]),
       stop: Option::zip(stop_x, stop_y).map(|(x, y)| [x, y]),
-      rule_name: rule_name.map_or_else(String::new, |s| s.to_lowercase()),
-      comment: comment.map_or_else(String::new, |s| s.to_lowercase())
+      rule_name: rule_name.unwrap_or_default(),
+      comment: comment.unwrap_or_default()
     })
+  }
+
+  fn serialize_record(&self) -> csv::StringRecord {
+    csv::StringRecord::from(vec![
+      self.from_id.to_string(),
+      self.to_id.to_string(),
+      self.kind.to_str().to_owned(),
+      stringify_maybe_num(self.through),
+      stringify_maybe_pos(self.start),
+      stringify_maybe_pos(self.stop),
+      self.rule_name.clone(),
+      self.comment.clone()
+    ])
   }
 }
 
@@ -163,4 +186,19 @@ fn stringify_maybe_num(num: Option<u32>) -> String {
 
 fn stringify_maybe_pos(pos: Option<[u32; 2]>) -> String {
   pos.map_or("-1;-1".to_owned(), |[x, y]| format!("{};{}", x, y))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{Adjacency, ParseCsv};
+
+  #[test]
+  fn test_adjacency() {
+    const SAMPLE: &str = include_str!("./samples/adjacencies.csv");
+    let adjacencies = Adjacency::read_records(SAMPLE.as_bytes()).unwrap();
+    assert_eq!(adjacencies.len(), 233);
+    println!("adjacencies[0]: {:?}", adjacencies[0]);
+    println!("adjacencies[1]: {:?}", adjacencies[1]);
+    println!("adjacencies[232]: {:?}", adjacencies[232]);
+  }
 }

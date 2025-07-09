@@ -21,15 +21,11 @@ pub fn hsl_to_rgb(hsl: [f32; 3]) -> [u8; 3] {
     }
   }
 
-  let (h, s, l) = (hsl[0] / 360.0, hsl[1], hsl[2]);
-  let r;
-  let g;
-  let b;
+  let [h, s, l] = hsl;
+  let h = h / 360.0;
 
-  if s == 0.0 {
-    r = l;
-    g = l;
-    b = l;
+  let color = if s == 0.0 {
+    [l; 3]
   } else {
     let q = if l < 0.5 {
       l * (1.0 + s)
@@ -38,14 +34,15 @@ pub fn hsl_to_rgb(hsl: [f32; 3]) -> [u8; 3] {
     };
 
     let p = 2.0 * l - q;
-    r = hue2rgb(p, q, h + 1.0 / 3.0);
-    g = hue2rgb(p, q, h + 0.0 / 3.0);
-    b = hue2rgb(p, q, h - 1.0 / 3.0);
+
+    [
+      hue2rgb(p, q, h + 1.0 / 3.0),
+      hue2rgb(p, q, h + 0.0 / 3.0),
+      hue2rgb(p, q, h - 1.0 / 3.0)
+    ]
   };
 
-  [
-    (r * 255.0).round() as u8,
-    (g * 255.0).round() as u8,
-    (b * 255.0).round() as u8
-  ]
+  color.map(|k| {
+    (k * 255.0).round() as u8
+  })
 }

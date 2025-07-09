@@ -183,6 +183,7 @@ impl std::fmt::Debug for MapBase {
 pub struct Map {
   base: MapBase,
   boundaries: FxHashMap<UOrd<Vector2<u32>>, bool>,
+  preserved_unsupported_adjacencies: Vec<Adjacency>,
   preserved_id_count: Option<u32>
 }
 

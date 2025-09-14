@@ -197,8 +197,5 @@ mod tests {
     const SAMPLE: &str = include_str!("./samples/adjacencies.csv");
     let adjacencies = Adjacency::read_records(SAMPLE.as_bytes()).unwrap();
     assert_eq!(adjacencies.len(), 233);
-    println!("adjacencies[0]: {:?}", adjacencies[0]);
-    println!("adjacencies[1]: {:?}", adjacencies[1]);
-    println!("adjacencies[232]: {:?}", adjacencies[232]);
   }
 }

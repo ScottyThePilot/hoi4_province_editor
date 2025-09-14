@@ -1,10 +1,11 @@
 use chrono::Local;
+use fs_err as fs;
+use defy::Contextualize;
 use once_cell::sync::Lazy;
 use rusttype::{Font, Scale};
 
 use std::process::Command;
 use std::env;
-use std::fs;
 
 use crate::error::Error;
 
@@ -73,14 +74,14 @@ pub fn view_font_license() -> Result<(), Error> {
   let path = env::temp_dir().join(format!("Inconsolata-OFL-{}.txt", now));
 
   fs::write(&path, LICENSE_CONTENTS)
-    .map_err(|err| format!("Failed to write font license to disk: {}", err))?;
+    .context("Failed to write font license to disk")?;
 
   if cfg!(target_os = "windows") {
     Command::new("notepad").arg(path).spawn()
-      .map_err(|err| format!("Failed to open license: {}", err))?;
+      .context("Failed to open license")?;
   } else if cfg!(target_os = "macos") {
     Command::new("open").arg(path).spawn()
-      .map_err(|err| format!("Failed to open license: {}", err))?;
+      .context("Failed to open license")?;
   } else {
     unimplemented!()
   };

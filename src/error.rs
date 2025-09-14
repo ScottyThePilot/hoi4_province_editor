@@ -1,3 +1,4 @@
+use defy::ContextualError;
 use thiserror::Error;
 
 use crate::app::format::CsvError;
@@ -7,6 +8,8 @@ use crate::config::LoadConfigError;
 pub enum Error {
   #[error(transparent)]
   Io(#[from] std::io::Error),
+  #[error(transparent)]
+  IoContext(#[from] ContextualError<std::io::Error>),
   #[error(transparent)]
   Zip(#[from] zip::result::ZipError),
   #[error(transparent)]

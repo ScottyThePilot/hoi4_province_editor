@@ -14,6 +14,7 @@ chrono = "0.4"
 color-backtrace = "0.7"
 csv = "1.3.1"
 dunce = "1.0"
+fs-err = "3.1.1"
 geo = "0.20"
 glutin = "0.26"
 image = { version = "~0.24.9", features = ["bmp", "png", "rayon"], default-features = false }
@@ -34,6 +35,9 @@ thiserror = "1.0"
 toml = "0.5"
 vecmath = "1.0"
 zip = "0.6"
+
+[dependencies.defy]
+git = "https://github.com/ScottyThePilot/misc-crates"
 
 [profile.dev]
 opt-level = 1

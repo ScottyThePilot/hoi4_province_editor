@@ -1,3 +1,4 @@
+use fs_err::File;
 use fxhash::FxHashSet;
 use graphics::Transformed;
 use graphics::types::Color as DrawColor;
@@ -20,7 +21,6 @@ use crate::util::uord::UOrd;
 use crate::error::Error;
 
 use std::path::Path;
-use std::fs::File;
 use std::io::BufWriter;
 use std::fmt;
 
@@ -942,7 +942,7 @@ impl Camera {
 }
 
 fn export_image_buffer<P: AsRef<Path>>(path: P, image: RgbImage) -> Result<(), Error> {
-  super::map::write_rgb_bmp_image(BufWriter::new(File::create(path)?), &image)
+  super::map::write_rgb_bmp_image(BufWriter::new(File::create(path.as_ref())?), &image)
 }
 
 #[inline]

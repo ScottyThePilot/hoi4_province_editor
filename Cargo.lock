@@ -551,6 +551,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "defy"
+version = "0.1.0"
+source = "git+https://github.com/ScottyThePilot/misc-crates#d3c965f8cba94bbfb5932bf766808216e9c4b976"
+
+[[package]]
 name = "deranged"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -718,6 +723,15 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+
+[[package]]
+name = "fs-err"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88d7be93788013f265201256d58f04936a8079ad5dc898743aa20525f503b683"
+dependencies = [
+ "autocfg",
+]
 
 [[package]]
 name = "fuchsia-zircon"
@@ -977,7 +991,9 @@ dependencies = [
  "chrono",
  "color-backtrace",
  "csv",
+ "defy",
  "dunce",
+ "fs-err",
  "geo",
  "glutin",
  "image",

@@ -67,9 +67,9 @@ fn write_application_info(mut out: impl Write) -> Result<(), std::io::Error> {
 fn install_handler() {
   use chrono::Local;
   use color_backtrace::{BacktracePrinter, Verbosity};
+  use fs_err::File;
   use termcolor::NoColor;
 
-  use std::fs::File;
   use std::panic::{set_hook, PanicHookInfo};
   use std::sync::Mutex;
 

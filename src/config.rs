@@ -1,3 +1,4 @@
+use fs_err as fs;
 use fxhash::FxHashMap;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -6,8 +7,6 @@ use thiserror::Error;
 use crate::app::map::Color;
 use crate::app::map::ProvinceKind;
 use crate::util::fx_hash_map_with_capacity;
-
-use std::fs;
 
 const DEFAULT_CONFIG: &[u8] = include_bytes!("../assets/hoi4pe_config_default.toml");
 

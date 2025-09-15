@@ -234,6 +234,7 @@ fn construct_map_data(
       color_buffer: Arc::new(color_buffer),
       province_data_map: Arc::new(province_data_map),
       connection_data_map: Arc::new(connection_data_map),
+      rivers_overlay: None // TODO
     },
     boundaries: FxHashMap::default(),
     preserved_unsupported_adjacencies,

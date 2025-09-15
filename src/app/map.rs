@@ -166,7 +166,8 @@ impl Bundle {
 pub struct MapBase {
   color_buffer: Arc<RgbImage>,
   province_data_map: Arc<FxHashMap<Color, Arc<ProvinceData>>>,
-  connection_data_map: Arc<FxHashMap<UOrd<Color>, Arc<ConnectionData>>>
+  connection_data_map: Arc<FxHashMap<UOrd<Color>, Arc<ConnectionData>>>,
+  rivers_overlay: Option<Arc<RgbaImage>>
 }
 
 impl std::fmt::Debug for MapBase {
@@ -657,6 +658,10 @@ impl Map {
 
   pub fn iter_boundaries(&self) -> impl Iterator<Item = (UOrd<Vector2<u32>>, bool)> + '_ {
     self.boundaries.iter().map(|(b, is_special)| (*b, *is_special))
+  }
+
+  pub fn get_rivers_overlay(&self) -> Option<&RgbaImage> {
+    self.base.rivers_overlay.as_deref()
   }
 }
 

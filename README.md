@@ -77,3 +77,8 @@ Note that HOI4 requires `sea` and `land` adjacencies to have a "through province
 2. Clone this repository to a folder and navigate there in your terminal
 3. Run `cargo build --release` in that folder, wait for it to complete
 4. The resulting executable should be located in `/target/release`
+
+## Credits
+This project uses icons/assets from the following projects:
+- https://github.com/tabler/tabler-icons, under the MIT license
+- https://github.com/astrit/css.gg, under the MIT license

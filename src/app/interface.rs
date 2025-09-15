@@ -21,27 +21,105 @@ pub const PADDING: Vector2<f64> = [6.0, 4.0];
 const PALETTE_BUTTON: Palette = Palette {
   foreground: colors::WHITE,
   background: colors::BUTTON,
-  background_hover: colors::BUTTON_HOVER
+  background_active: colors::BUTTON_ACTIVE,
+  background_hover: colors::BUTTON_HOVER,
+  background_hover_active: colors::BUTTON_HOVER_ACTIVE
 };
 
 const PALETTE_BUTTON_TOOLBAR: Palette = Palette {
   foreground: colors::WHITE,
   background: colors::BUTTON_TOOLBAR,
-  background_hover: colors::BUTTON_TOOLBAR_HOVER
+  background_active: colors::BUTTON_TOOLBAR_ACTIVE,
+  background_hover: colors::BUTTON_TOOLBAR_HOVER,
+  background_hover_active: colors::BUTTON_TOOLBAR_HOVER_ACTIVE
 };
+
+pub fn get_interface(interface_holder: &mut Option<Interface>, viewport: Viewport) -> &Interface {
+  interface_holder.get_or_insert_with(|| Interface::new(viewport))
+}
 
 #[derive(Debug, Clone)]
 pub struct Interface {
   toolbar_buttons: Vec<ToolbarButtonElement>,
-  toolbar_plate: PlateComponent,
+  toolbar_plate: PlateComponentStyled,
   toolbar_height: u32,
-  sidebar_buttons: Vec<ButtonElement>,
-  sidebar_plate: PlateComponent,
+  sidebar_tool_buttons: Vec<ButtonElement>,
+  sidebar_option_buttons: Vec<ButtonElement>,
+  sidebar_plate: PlateComponentStyled,
   sidebar_width: u32,
   viewport: Viewport
 }
 
 impl Interface {
+  pub fn new(viewport: Viewport) -> Self {
+    let [window_width, window_height] = viewport.draw_size;
+
+    let mut pos_x = 0;
+    let mut toolbar_height = 0;
+    let mut toolbar_buttons = Vec::with_capacity(TOOLBAR_PRIMITIVE.len());
+    for &(toolbar_button_text, toolbar_primitive_buttons) in TOOLBAR_PRIMITIVE {
+      let mut buttons = Vec::with_capacity(toolbar_primitive_buttons.len());
+      let base = ButtonBase::new_fit_width(toolbar_button_text, [pos_x, 0], &PALETTE_BUTTON_TOOLBAR);
+
+      let mut pos_y = base.height();
+      for &(button_text_left, button_text_right, id) in toolbar_primitive_buttons {
+        let text = [button_text_left, button_text_right];
+        let base = ButtonBase::new_double_text(text, [pos_x, pos_y], TOOLBAR_DROPDOWN_WIDTH, &PALETTE_BUTTON);
+        pos_y += base.height();
+
+        buttons.push(ButtonElement { base, id });
+      };
+
+      toolbar_height = base.height();
+      pos_x += base.width();
+
+      toolbar_buttons.push(ToolbarButtonElement {
+        base, buttons, enabled: false
+      });
+    };
+
+    let mut pos_y_top = toolbar_height;
+    let mut pos_y_bottom = window_height as u32;
+    let mut sidebar_width = 0;
+    let mut sidebar_tool_buttons = Vec::new();
+    let mut sidebar_option_buttons = Vec::new();
+    for &(sprite_coords, id, kind) in SIDEBAR_PRIMITIVE {
+      match kind {
+        SidebarPrimitiveKind::Tool => {
+          let base = ButtonBase::new_texture(sprite_coords, [0, pos_y_top], ButtonOrigin::TopLeft, &PALETTE_BUTTON);
+          sidebar_width = sidebar_width.max(base.width());
+          pos_y_top += base.height();
+
+          sidebar_tool_buttons.push(ButtonElement { base, id });
+        },
+        SidebarPrimitiveKind::Option => {
+          let base = ButtonBase::new_texture(sprite_coords, [0, pos_y_bottom], ButtonOrigin::BottomLeft, &PALETTE_BUTTON);
+          sidebar_width = sidebar_width.max(base.width());
+          pos_y_bottom -= base.height();
+
+          sidebar_option_buttons.push(ButtonElement { base, id });
+        }
+      };
+    };
+
+    let toolbar_plate_size = [window_width as f64, toolbar_height as f64];
+    let toolbar_plate = PlateComponent { pos: [0.0, 0.0], size: toolbar_plate_size };
+
+    let sidebar_plate_size = [sidebar_width as f64, window_height as f64];
+    let sidebar_plate = PlateComponent { pos: [0.0, toolbar_height as f64], size: sidebar_plate_size };
+
+    Interface {
+      sidebar_tool_buttons,
+      sidebar_option_buttons,
+      toolbar_buttons,
+      toolbar_plate: toolbar_plate.styled(&PALETTE_BUTTON_TOOLBAR),
+      toolbar_height,
+      sidebar_plate: sidebar_plate.styled(&PALETTE_BUTTON),
+      sidebar_width,
+      viewport
+    }
+  }
+
   #[inline]
   pub const fn get_window_size(&self) -> [f64; 2] {
     self.viewport.window_size
@@ -67,7 +145,13 @@ impl Interface {
   /// If a button was not clicked, a boolean is returned indicating whether or not
   /// the input just processed should be deferred to something below the interface.
   pub fn on_mouse_click(&mut self, pos: Vector2<f64>) -> Result<ButtonId, bool> {
-    for sidebar_button in &self.sidebar_buttons {
+    for sidebar_button in &self.sidebar_tool_buttons {
+      if sidebar_button.base.test(pos) {
+        return Ok(sidebar_button.id);
+      };
+    };
+
+    for sidebar_button in &self.sidebar_option_buttons {
       if sidebar_button.base.test(pos) {
         return Ok(sidebar_button.id);
       };
@@ -119,34 +203,42 @@ impl Interface {
     glyph_cache: &mut FontGlyphCache,
     gl: &mut GlGraphics
   ) {
-    let sidebar_colors = self.sidebar_buttons[0].base.colors();
-    self.sidebar_plate.draw(ctx, false, sidebar_colors, gl);
-    for (i, sidebar_button) in self.sidebar_buttons.iter().enumerate() {
+    self.sidebar_plate.draw(ctx, false, false, gl);
+
+    for (i, sidebar_button) in self.sidebar_tool_buttons.iter().enumerate() {
       let selected_tool = match (ictx.view_mode, i) {
+        // color map mode has the primary 3 tools (paint area, paint bucket, lasso) available
         (Some(ViewMode::Color), _) => ictx.selected_tool,
-        (Some(ViewMode::Coastal), _) => continue,
-        (Some(ViewMode::Adjacencies), _) => continue,
-        (Some(_), 0) => Some(0),
+        // coastal and adjacencies are read-only and have no tools
+        (Some(ViewMode::Coastal | ViewMode::Adjacencies), _) => continue,
+        // kind, terrain, and continent only have the first tool (paint area) available
+        (Some(ViewMode::Kind | ViewMode::Terrain | ViewMode::Continent), 0) => Some(0),
         (_, _) => continue
       };
 
-      let hover = Some(i) == selected_tool || sidebar_button.base.test_maybe(pos);
-      sidebar_button.base.draw(ctx, hover, glyph_cache, gl);
+      let hover = sidebar_button.base.test_maybe(pos);
+      let active = Some(i) == selected_tool;
+      sidebar_button.base.draw(ctx, hover, active, glyph_cache, gl);
     };
 
-    let toolbar_colors = self.toolbar_buttons[0].base.colors();
-    self.toolbar_plate.draw(ctx, false, toolbar_colors, gl);
+    for (i, sidebar_button) in self.sidebar_option_buttons.iter().enumerate() {
+      let hover = sidebar_button.base.test_maybe(pos);
+      let active = ictx.enabled_options[i];
+      sidebar_button.base.draw(ctx, hover, active, glyph_cache, gl);
+    };
+
+    self.toolbar_plate.draw(ctx, false, false, gl);
 
     for toolbar_button in &self.toolbar_buttons {
       if toolbar_button.enabled {
-        toolbar_button.base.draw(ctx, true, glyph_cache, gl);
+        toolbar_button.base.draw(ctx, true, true, glyph_cache, gl);
 
         for button in &toolbar_button.buttons {
-          button.draw(ctx, pos, glyph_cache, gl);
+          button.draw(ctx, pos, false, glyph_cache, gl);
         };
       } else {
         let hover = toolbar_button.base.test_maybe(pos);
-        toolbar_button.base.draw(ctx, hover, glyph_cache, gl);
+        toolbar_button.base.draw(ctx, hover, false, glyph_cache, gl);
       };
     };
   }
@@ -163,8 +255,8 @@ impl ButtonElement {
     self.base.test(pos)
   }
 
-  fn draw(&self, ctx: Context, pos: Option<Vector2<f64>>, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
-    self.base.draw(ctx, self.base.test_maybe(pos), glyph_cache, gl);
+  fn draw(&self, ctx: Context, pos: Option<Vector2<f64>>, active: bool, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
+    self.base.draw(ctx, self.base.test_maybe(pos), active, glyph_cache, gl);
   }
 }
 
@@ -178,6 +270,23 @@ struct ToolbarButtonElement {
 impl ToolbarButtonElement {
   fn test(&self, pos: Vector2<f64>) -> bool {
     self.base.test(pos) || self.buttons.iter().any(|button| button.test(pos))
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ButtonOrigin {
+  TopLeft, #[allow(unused)] TopRight,
+  BottomLeft, #[allow(unused)] BottomRight
+}
+
+impl ButtonOrigin {
+  pub const fn to_vector(self) -> Vector2<f64> {
+    match self {
+      ButtonOrigin::TopLeft => [0.0, 0.0],
+      ButtonOrigin::TopRight => [1.0, 0.0],
+      ButtonOrigin::BottomLeft => [0.0, 1.0],
+      ButtonOrigin::BottomRight => [1.0, 1.0]
+    }
   }
 }
 
@@ -231,12 +340,13 @@ impl ButtonBase {
     }
   }
 
-  fn new_texture(sprite_coords: [u32; 4], pos: Vector2<u32>, colors: &'static Palette) -> Self {
+  fn new_texture(sprite_coords: [u32; 4], pos: Vector2<u32>, origin: ButtonOrigin, colors: &'static Palette) -> Self {
     let pad = f64::min(PADDING[0], PADDING[1]);
-    let texture = Arc::new(get_sprite(sprite_coords));
-    let texture_pos = [pos[0] as f64 + pad, pos[1] as f64 + pad];
-    let plate_pos = [pos[0] as f64, pos[1] as f64];
     let size = [sprite_coords[2] as f64 + pad * 2.0, sprite_coords[3] as f64 + pad * 2.0];
+    let offset = vecmath::vec2_mul(size, origin.to_vector());
+    let texture = Arc::new(get_sprite(sprite_coords));
+    let texture_pos = vecmath::vec2_sub([pos[0] as f64 + pad, pos[1] as f64 + pad], offset);
+    let plate_pos = vecmath::vec2_sub([pos[0] as f64, pos[1] as f64], offset);
     ButtonBase::BoxTexture {
       texture: TextureComponent { pos: texture_pos, texture },
       plate: PlateComponent { pos: plate_pos, size },
@@ -264,19 +374,19 @@ impl ButtonBase {
     self.plate().test(pos)
   }
 
-  fn draw(&self, ctx: Context, hover: bool, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
+  fn draw(&self, ctx: Context, hover: bool, active: bool, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
     match self {
       ButtonBase::BoxFitWidth { text, plate, colors } => {
-        plate.draw(ctx, hover, colors, gl);
+        plate.draw(ctx, hover, active, colors, gl);
         text.draw(ctx, colors, glyph_cache, gl);
       },
       ButtonBase::BoxDoubleText { text_left, text_right, plate, colors } => {
-        plate.draw(ctx, hover, colors, gl);
+        plate.draw(ctx, hover, active, colors, gl);
         text_left.draw(ctx, colors, glyph_cache, gl);
         text_right.draw(ctx, colors, glyph_cache, gl);
       },
       ButtonBase::BoxTexture { texture, plate, colors } => {
-        plate.draw(ctx, hover, colors, gl);
+        plate.draw(ctx, hover, active, colors, gl);
         texture.draw(ctx, gl);
       }
     }
@@ -287,14 +397,6 @@ impl ButtonBase {
       ButtonBase::BoxFitWidth { plate, .. } => plate,
       ButtonBase::BoxDoubleText { plate, .. } => plate,
       ButtonBase::BoxTexture { plate, .. } => plate
-    }
-  }
-
-  fn colors(&self) -> &'static Palette {
-    match self {
-      ButtonBase::BoxFitWidth { colors, .. } => colors,
-      ButtonBase::BoxDoubleText { colors, .. } => colors,
-      ButtonBase::BoxTexture { colors, .. } => colors
     }
   }
 }
@@ -336,15 +438,39 @@ impl fmt::Debug for TextureComponent {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct PlateComponentStyled {
+  plate: PlateComponent,
+  colors: &'static Palette
+}
+
+impl PlateComponentStyled {
+  fn draw(&self, ctx: Context, hover: bool, active: bool, gl: &mut GlGraphics) {
+    self.plate.draw(ctx, hover, active, self.colors, gl);
+  }
+
+  fn test(&self, pos: Vector2<f64>) -> bool {
+    self.plate.test(pos)
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
 struct PlateComponent {
   pos: Vector2<f64>,
   size: Vector2<f64>
 }
 
 impl PlateComponent {
-  fn draw(&self, ctx: Context, hover: bool, colors: &Palette, gl: &mut GlGraphics) {
-    let color = if hover { colors.background_hover } else { colors.background };
-    graphics::rectangle(color, [self.pos[0], self.pos[1], self.size[0], self.size[1]], ctx.transform, gl);
+  fn draw(&self, ctx: Context, hover: bool, active: bool, colors: &Palette, gl: &mut GlGraphics) {
+    let color = if active {
+      if hover { colors.background_hover_active } else { colors.background_active }
+    } else {
+      if hover { colors.background_hover } else { colors.background }
+    };
+
+    graphics::rectangle(color, [
+      self.pos[0], self.pos[1],
+      self.size[0], self.size[1]
+    ], ctx.transform, gl);
   }
 
   fn test(&self, pos: Vector2<f64>) -> bool {
@@ -352,13 +478,19 @@ impl PlateComponent {
     pos[0] >= self.pos[0] && pos[1] >= self.pos[1] &&
     pos[0] < upper[0] && pos[1] < upper[1]
   }
+
+  const fn styled(self, colors: &'static Palette) -> PlateComponentStyled {
+    PlateComponentStyled { plate: self, colors }
+  }
 }
 
 #[derive(Debug, Clone)]
 struct Palette {
   foreground: DrawColor,
   background: DrawColor,
-  background_hover: DrawColor
+  background_active: DrawColor,
+  background_hover: DrawColor,
+  background_hover_active: DrawColor
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -384,8 +516,9 @@ pub enum ButtonId {
   ToolbarViewMode4,
   ToolbarViewMode5,
   ToolbarViewMode6,
-  ToolbarViewToggleIds,
-  ToolbarViewToggleBoundaries,
+  ToolbarViewToggleProvinceIds,
+  ToolbarViewToggleProvinceBoundaries,
+  ToolbarViewToggleRiverOverlay,
   ToolbarViewResetZoom,
   ToolbarViewFontLicense,
   #[cfg(any(debug_assertions, feature = "debug-mode"))]
@@ -394,12 +527,20 @@ pub enum ButtonId {
   ToolbarDebugTriggerCrash,
   SidebarToolPaintArea,
   SidebarToolPaintBucket,
-  SidebarToolLasso
+  SidebarToolLasso,
+  SidebarOptionProvinceIds,
+  SidebarOptionProvinceBoundaries,
+  SidebarOptionRiverOverlay
 }
 
 type ToolbarButtonPrimitive<'a> = (&'a str, &'a [(&'a str, &'a str, ButtonId)]);
 type ToolbarPrimitive<'a> = &'a [ToolbarButtonPrimitive<'a>];
-type SidebarPrimitive<'a> = &'a [([u32; 4], ButtonId)];
+type SidebarPrimitive<'a> = &'a [([u32; 4], ButtonId, SidebarPrimitiveKind)];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SidebarPrimitiveKind {
+  Tool, Option
+}
 
 const TOOLBAR_DROPDOWN_WIDTH: u32 = 320;
 const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
@@ -429,8 +570,9 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
     ("Continents Map View Mode", "4", ButtonId::ToolbarViewMode4),
     ("Coastal Provinces Map View Mode", "5", ButtonId::ToolbarViewMode5),
     ("Adjacencies Map View Mode", "6", ButtonId::ToolbarViewMode6),
-    ("Toggle Province IDs", "", ButtonId::ToolbarViewToggleIds),
-    ("Toggle Province Boundaries", "", ButtonId::ToolbarViewToggleBoundaries),
+    ("Toggle Province IDs", "", ButtonId::ToolbarViewToggleProvinceIds),
+    ("Toggle Province Boundaries", "", ButtonId::ToolbarViewToggleProvinceBoundaries),
+    ("Toggle Rivers Overlay", "", ButtonId::ToolbarViewToggleRiverOverlay),
     ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom),
     ("View Inconsolata Open Font License", "", ButtonId::ToolbarViewFontLicense)
   ]),
@@ -442,70 +584,13 @@ const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
 ];
 
 const SIDEBAR_PRIMITIVE: SidebarPrimitive<'static> = &[
-  ([0,  0, 20, 20], ButtonId::SidebarToolPaintArea),
-  ([20, 0, 20, 20], ButtonId::SidebarToolPaintBucket),
-  ([40, 0, 20, 20], ButtonId::SidebarToolLasso)
+  ([00, 00, 24, 24], ButtonId::SidebarToolPaintArea, SidebarPrimitiveKind::Tool),
+  ([24, 00, 24, 24], ButtonId::SidebarToolPaintBucket, SidebarPrimitiveKind::Tool),
+  ([48, 00, 24, 24], ButtonId::SidebarToolLasso, SidebarPrimitiveKind::Tool),
+  ([00, 24, 24, 24], ButtonId::SidebarOptionProvinceIds, SidebarPrimitiveKind::Option),
+  ([24, 24, 24, 24], ButtonId::SidebarOptionProvinceBoundaries, SidebarPrimitiveKind::Option),
+  ([48, 24, 24, 24], ButtonId::SidebarOptionRiverOverlay, SidebarPrimitiveKind::Option)
 ];
-
-pub fn get_interface(interface_holder: &mut Option<Interface>, viewport: Viewport) -> &Interface {
-  interface_holder.get_or_insert_with(|| construct_interface(viewport))
-}
-
-pub fn construct_interface(viewport: Viewport) -> Interface {
-  let [window_width, window_height] = viewport.window_size;
-
-  let mut pos_x = 0;
-  let mut toolbar_height = 0;
-  let mut toolbar_buttons = Vec::with_capacity(TOOLBAR_PRIMITIVE.len());
-  for &(toolbar_button_text, toolbar_primitive_buttons) in TOOLBAR_PRIMITIVE {
-    let mut buttons = Vec::with_capacity(toolbar_primitive_buttons.len());
-    let base = ButtonBase::new_fit_width(toolbar_button_text, [pos_x, 0], &PALETTE_BUTTON_TOOLBAR);
-
-    let mut pos_y = base.height();
-    for &(button_text_left, button_text_right, id) in toolbar_primitive_buttons {
-      let text = [button_text_left, button_text_right];
-      let base = ButtonBase::new_double_text(text, [pos_x, pos_y], TOOLBAR_DROPDOWN_WIDTH, &PALETTE_BUTTON);
-      pos_y += base.height();
-
-      buttons.push(ButtonElement { base, id });
-    };
-
-    toolbar_height = base.height();
-    pos_x += base.width();
-
-    toolbar_buttons.push(ToolbarButtonElement {
-      base, buttons, enabled: false
-    });
-  };
-
-  let mut pos_y = toolbar_height;
-  let mut sidebar_width = 0;
-  let mut buttons = Vec::with_capacity(SIDEBAR_PRIMITIVE.len());
-  for &(sprite_coords, id) in SIDEBAR_PRIMITIVE {
-    let base = ButtonBase::new_texture(sprite_coords, [0, pos_y], &PALETTE_BUTTON);
-
-    sidebar_width = base.width();
-    pos_y += base.height();
-
-    buttons.push(ButtonElement { base, id });
-  };
-
-  let toolbar_plate_size = [window_width, toolbar_height as f64];
-  let toolbar_plate = PlateComponent { pos: [0.0, 0.0], size: toolbar_plate_size };
-
-  let sidebar_plate_size = [sidebar_width as f64, window_height];
-  let sidebar_plate = PlateComponent { pos: [0.0, toolbar_height as f64], size: sidebar_plate_size };
-
-  Interface {
-    sidebar_buttons: buttons,
-    toolbar_buttons,
-    toolbar_plate,
-    toolbar_height,
-    sidebar_plate,
-    sidebar_width,
-    viewport
-  }
-}
 
 fn get_sprite(sprite_coords: [u32; 4]) -> Texture {
   const SPRITESHEET_DATA: &[u8] = include_bytes!("../../assets/spritesheet.png");

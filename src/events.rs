@@ -41,9 +41,11 @@ pub fn launch<H: EventHandler>(window: &mut GlutinWindow, gl: &mut GlGraphics) {
     match event {
       Event::Loop(loop_event) => match loop_event {
         Loop::Update(args) => event_handler.on_update(args.dt as f32),
-        Loop::Render(args) => gl.draw(args.viewport(), |ctx, gl| {
-          event_handler.on_render(ctx, cursor_pos, gl);
-        }),
+        Loop::Render(args) => if !is_viewport_zero(args.viewport()) {
+          gl.draw(args.viewport(), |ctx, gl| {
+            event_handler.on_render(ctx, cursor_pos, gl);
+          });
+        },
         Loop::AfterRender(_) if init => {
           event_handler.on_init();
           init = false;
@@ -83,7 +85,9 @@ pub fn launch<H: EventHandler>(window: &mut GlutinWindow, gl: &mut GlGraphics) {
           break;
         },
         Input::Resize(resize_args) => {
-          event_handler.on_resize(resize_args.viewport());
+          if !is_viewport_zero(resize_args.viewport()) {
+            event_handler.on_resize(resize_args.viewport());
+          };
         },
         _ => ()
       },
@@ -121,4 +125,8 @@ fn state(state: ButtonState) -> bool {
     ButtonState::Press => true,
     ButtonState::Release => false
   }
+}
+
+pub fn is_viewport_zero(viewport: Viewport) -> bool {
+  viewport.window_size == [0.0, 0.0] || viewport.draw_size == [0, 0]
 }

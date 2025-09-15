@@ -17,7 +17,7 @@ use crate::font;
 use crate::events::{EventHandler, KeyMods};
 use self::alerts::Alerts;
 use self::canvas::{Canvas, ToolMode, ViewMode};
-use self::interface::{Interface, ButtonId, get_interface, construct_interface};
+use self::interface::{Interface, ButtonId, get_interface};
 use self::map::{Location, IntoLocation};
 
 use std::path::{Path, PathBuf};
@@ -40,11 +40,26 @@ pub mod colors {
   pub const ADJ_SEA: DrawColor = [0.2, 1.0/3.0, 0.6, 1.0];
   pub const ADJ_IMPASSABLE: DrawColor = [0.0, 0.0, 0.0, 1.0];
 
-  pub const BUTTON: DrawColor = [0.1875, 0.1875, 0.1875, 1.0];
-  pub const BUTTON_HOVER: DrawColor = [0.3750, 0.3750, 0.3750, 1.0];
+  const fn color_simple(r: u16, g: u16, b: u16) -> DrawColor {
+    [r as f32 / 256.0, g as f32 / 256.0, b as f32 / 256.0, 1.0]
+  }
 
-  pub const BUTTON_TOOLBAR: DrawColor = [0.1250, 0.1250, 0.1250, 1.0];
-  pub const BUTTON_TOOLBAR_HOVER: DrawColor = [0.3125, 0.3125, 0.3125, 1.0];
+  const fn color_active(mut color: DrawColor) -> DrawColor {
+    color[0] /= 2.0;
+    color[1] /= 2.0;
+    color[2] += (color[0] + color[1]) / 2.0;
+    color
+  }
+
+  pub const BUTTON: DrawColor = color_simple(48, 48, 48);
+  pub const BUTTON_ACTIVE: DrawColor = color_active(BUTTON);
+  pub const BUTTON_HOVER: DrawColor = color_simple(96, 96, 96);
+  pub const BUTTON_HOVER_ACTIVE: DrawColor = color_active(BUTTON_HOVER);
+
+  pub const BUTTON_TOOLBAR: DrawColor = color_simple(32, 32, 32);
+  pub const BUTTON_TOOLBAR_ACTIVE: DrawColor = color_active(BUTTON_TOOLBAR);
+  pub const BUTTON_TOOLBAR_HOVER: DrawColor = color_simple(80, 80, 80);
+  pub const BUTTON_TOOLBAR_HOVER_ACTIVE: DrawColor = color_active(BUTTON_TOOLBAR_HOVER);
 }
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
@@ -183,7 +198,7 @@ impl EventHandler for App {
   }
 
   fn on_resize(&mut self, viewport: Viewport) {
-    self.interface = Some(construct_interface(viewport));
+    self.interface = Some(Interface::new(viewport));
   }
 
   fn on_unfocus(&mut self) {
@@ -212,11 +227,13 @@ impl App {
           ToolMode::PaintArea => 0,
           ToolMode::PaintBucket => 1,
           ToolMode::Lasso(_) => 2
-        })
+        }),
+        enabled_options: canvas.enabled_options()
       },
       None => InterfaceDrawContext {
         view_mode: None,
-        selected_tool: None
+        selected_tool: None,
+        enabled_options: [false; 3]
       }
     }
   }
@@ -232,7 +249,6 @@ impl App {
   pub fn action_interface_button(&mut self, id: ButtonId) {
     use self::interface::ButtonId::*;
     match (&mut self.canvas, id) {
-
       (_, ToolbarFileOpenFileArchive) => self.action_open_map(true),
       (_, ToolbarFileOpenFolder) => self.action_open_map(false),
       (Some(_), ToolbarFileSave) => self.action_save_map(),
@@ -254,8 +270,11 @@ impl App {
       (Some(_), ToolbarViewMode4) => self.action_change_view_mode(ViewMode::Continent),
       (Some(_), ToolbarViewMode5) => self.action_change_view_mode(ViewMode::Coastal),
       (Some(_), ToolbarViewMode6) => self.action_change_view_mode(ViewMode::Adjacencies),
-      (Some(canvas), ToolbarViewToggleIds) => canvas.toggle_province_ids(),
-      (Some(canvas), ToolbarViewToggleBoundaries) => canvas.toggle_province_boundaries(),
+      (Some(canvas), ToolbarViewToggleProvinceIds | SidebarOptionProvinceIds) => canvas.toggle_province_ids(),
+      (Some(canvas), ToolbarViewToggleProvinceBoundaries | SidebarOptionProvinceBoundaries) => canvas.toggle_province_boundaries(),
+      (Some(canvas), ToolbarViewToggleRiverOverlay | SidebarOptionRiverOverlay) => if canvas.toggle_river_overlay() {
+        self.alerts.push(Err("You must have a map with rivers.bmp to use this"));
+      },
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
       (_, ToolbarViewFontLicense) => self.handle_result_none(font::view_font_license()),
       (Some(canvas), SidebarToolPaintArea) => canvas.set_tool_mode(ToolMode::PaintArea),
@@ -402,7 +421,8 @@ impl fmt::Debug for App {
 #[derive(Debug, Clone, Copy)]
 pub struct InterfaceDrawContext {
   pub view_mode: Option<ViewMode>,
-  pub selected_tool: Option<usize>
+  pub selected_tool: Option<usize>,
+  pub enabled_options: [bool; 3]
 }
 
 fn file_dialog_save_bmp(filename: &str) -> Option<PathBuf> {

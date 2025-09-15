@@ -9,6 +9,7 @@ pub mod events;
 pub mod font;
 
 use glutin_window::GlutinWindow;
+use glutin::dpi::LogicalSize;
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::window::WindowSettings;
 
@@ -19,8 +20,11 @@ use std::path::PathBuf;
 use std::env;
 use std::io;
 
-const DEFAULT_WINDOW_WIDTH: u32 = 1280;
-const DEFAULT_WINDOW_HEIGHT: u32 = 720;
+const WINDOW_WIDTH_DEFAULT: u32 = 1280;
+const WINDOW_HEIGHT_DEFAULT: u32 = 720;
+
+const WINDOW_WIDTH_MIN: u32 = 384;
+const WINDOW_HEIGHT_MIN: u32 = 256;
 
 pub const APPNAME: &str = concat!("HOI4 Province Map Editor v", env!("CARGO_PKG_VERSION"));
 
@@ -31,10 +35,12 @@ fn main() {
   env::set_current_dir(root).expect("unable to set root dir");
 
   let opengl = OpenGL::V3_2;
-  let screen = [DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT];
+  let screen = [WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT];
   let mut window: GlutinWindow = WindowSettings::new(APPNAME, screen)
     .graphics_api(opengl).resizable(true).vsync(true)
     .build().expect("unable to initialize window");
+  let screen_min = LogicalSize::new(WINDOW_WIDTH_MIN, WINDOW_HEIGHT_MIN);
+  window.ctx.window().set_min_inner_size(Some(screen_min));
   let mut gl = GlGraphics::new(opengl);
   launch::<App>(&mut window, &mut gl);
 }

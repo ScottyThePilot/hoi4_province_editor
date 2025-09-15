@@ -36,6 +36,7 @@ pub struct Canvas {
   location: Location,
   show_province_ids: bool,
   show_province_boundaries: bool,
+  show_river_overlay: bool,
   pub tool: ToolSettings,
   pub modified: bool,
   pub camera: Camera
@@ -64,6 +65,7 @@ impl Canvas {
       location,
       show_province_ids,
       show_province_boundaries: false,
+      show_river_overlay: false,
       modified: false,
       camera
     })
@@ -263,6 +265,24 @@ impl Canvas {
 
   pub fn toggle_province_boundaries(&mut self) {
     self.show_province_boundaries = !self.show_province_boundaries;
+  }
+
+  pub fn toggle_river_overlay(&mut self) -> bool {
+    if !self.show_river_overlay && self.bundle.map.get_rivers_overlay().is_none() {
+      return true;
+    };
+
+    self.show_river_overlay = !self.show_river_overlay;
+
+    false
+  }
+
+  pub fn enabled_options(&self) -> [bool; 3] {
+    [
+      self.show_province_ids,
+      self.show_province_boundaries,
+      self.show_river_overlay
+    ]
   }
 
   pub fn toggle_lasso_snap(&mut self) {

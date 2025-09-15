@@ -39,6 +39,9 @@ zip = "0.6"
 [dependencies.defy]
 git = "https://github.com/ScottyThePilot/misc-crates"
 
+[dependencies.unicase]
+git = "https://github.com/ScottyThePilot/misc-crates"
+
 [profile.dev]
 opt-level = 1
 debug = "full"

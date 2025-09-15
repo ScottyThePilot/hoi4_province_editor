@@ -174,9 +174,23 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
 name = "bytemuck"
-version = "1.16.3"
+version = "1.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "102087e286b4677862ea56cf8fc58bb2cdfa8725c40ffb80fe3a008eb7f2fc83"
+checksum = "3995eaeebcdf32f91f980d360f78732ddc061097ab4e39991ae7a6ace9194677"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f154e572231cb6ba2bd1176980827e3d5dc04cc183a75dea38109fbdd672d29"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.72",
+]
 
 [[package]]
 name = "byteorder"
@@ -553,7 +567,7 @@ dependencies = [
 [[package]]
 name = "defy"
 version = "0.1.0"
-source = "git+https://github.com/ScottyThePilot/misc-crates#d3c965f8cba94bbfb5932bf766808216e9c4b976"
+source = "git+https://github.com/ScottyThePilot/misc-crates#8b942efc7d002a9f153689176c63379417128d7e"
 
 [[package]]
 name = "deranged"
@@ -1012,6 +1026,7 @@ dependencies = [
  "termcolor",
  "thiserror",
  "toml",
+ "unicase",
  "vecmath",
  "zip",
 ]
@@ -2201,6 +2216,14 @@ name = "typenum"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
+
+[[package]]
+name = "unicase"
+version = "0.1.0"
+source = "git+https://github.com/ScottyThePilot/misc-crates#8b942efc7d002a9f153689176c63379417128d7e"
+dependencies = [
+ "bytemuck",
+]
 
 [[package]]
 name = "unicode-ident"

@@ -40,26 +40,25 @@ pub mod colors {
   pub const ADJ_SEA: DrawColor = [0.2, 1.0/3.0, 0.6, 1.0];
   pub const ADJ_IMPASSABLE: DrawColor = [0.0, 0.0, 0.0, 1.0];
 
-  const fn color_simple(r: u16, g: u16, b: u16) -> DrawColor {
-    [r as f32 / 256.0, g as f32 / 256.0, b as f32 / 256.0, 1.0]
+  const fn color_inactive(value: u16) -> DrawColor {
+    let v = value as f32 / 256.0;
+    [v, v, v, 1.0]
   }
 
-  const fn color_active(mut color: DrawColor) -> DrawColor {
-    color[0] /= 2.0;
-    color[1] /= 2.0;
-    color[2] += (color[0] + color[1]) / 2.0;
-    color
+  const fn color_active(value: u16) -> DrawColor {
+    let v = value as f32 / 256.0;
+    [v, v, v * 2.0, 1.0]
   }
 
-  pub const BUTTON: DrawColor = color_simple(48, 48, 48);
-  pub const BUTTON_ACTIVE: DrawColor = color_active(BUTTON);
-  pub const BUTTON_HOVER: DrawColor = color_simple(96, 96, 96);
-  pub const BUTTON_HOVER_ACTIVE: DrawColor = color_active(BUTTON_HOVER);
+  pub const BUTTON: DrawColor = color_inactive(48);
+  pub const BUTTON_ACTIVE: DrawColor = color_active(48 + 16);
+  pub const BUTTON_HOVER: DrawColor = color_inactive(96);
+  pub const BUTTON_HOVER_ACTIVE: DrawColor = color_active(96 + 16);
 
-  pub const BUTTON_TOOLBAR: DrawColor = color_simple(32, 32, 32);
-  pub const BUTTON_TOOLBAR_ACTIVE: DrawColor = color_active(BUTTON_TOOLBAR);
-  pub const BUTTON_TOOLBAR_HOVER: DrawColor = color_simple(80, 80, 80);
-  pub const BUTTON_TOOLBAR_HOVER_ACTIVE: DrawColor = color_active(BUTTON_TOOLBAR_HOVER);
+  pub const BUTTON_TOOLBAR: DrawColor = color_inactive(32);
+  pub const BUTTON_TOOLBAR_ACTIVE: DrawColor = color_active(32 + 16);
+  pub const BUTTON_TOOLBAR_HOVER: DrawColor = color_inactive(80);
+  pub const BUTTON_TOOLBAR_HOVER_ACTIVE: DrawColor = color_active(80 + 16);
 }
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;

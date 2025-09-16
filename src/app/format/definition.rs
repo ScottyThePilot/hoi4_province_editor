@@ -80,23 +80,6 @@ impl Ord for Definition {
   }
 }
 
-impl fmt::Display for Definition {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(
-      f,
-      "{};{};{};{};{};{};{};{}",
-      self.id,
-      self.rgb[0],
-      self.rgb[1],
-      self.rgb[2],
-      self.kind,
-      self.coastal,
-      self.terrain,
-      self.continent
-    )
-  }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(into = "&str", try_from = "String")]
 pub enum DefinitionKind {

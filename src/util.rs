@@ -23,20 +23,12 @@ use std::ops::Range;
 pub struct XYIter {
   x_range: Range<u32>,
   y_range: Range<u32>,
-  x: u32,
-  y: u32,
-  done: bool
+  i: u64
 }
 
 impl XYIter {
   pub fn new(x: Range<u32>, y: Range<u32>) -> Self {
-    XYIter {
-      x: x.start,
-      y: y.start,
-      x_range: x,
-      y_range: y,
-      done: false
-    }
+    XYIter { x_range: x, y_range: y, i: 0 }
   }
 
   pub fn from_extents(extents: Extents) -> Self {
@@ -44,37 +36,49 @@ impl XYIter {
     let y = extents.lower[1]..(extents.upper[1] + 1);
     XYIter::new(x, y)
   }
+
+  pub const fn width(&self) -> u32 {
+    self.x_range.end - self.x_range.start
+  }
+
+  pub const fn height(&self) -> u32 {
+    self.y_range.end - self.y_range.start
+  }
+
+  pub const fn area(&self) -> u64 {
+    self.width() as u64 * self.height() as u64
+  }
 }
 
 impl Iterator for XYIter {
   type Item = Vector2<u32>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    if self.done {
-      None
+    if self.i < self.area() {
+      let x = self.i.rem_euclid(self.width() as u64) as u32 + self.x_range.start;
+      let y = self.i.div_euclid(self.width() as u64) as u32 + self.y_range.start;
+      self.i += 1;
+      Some([x, y])
     } else {
-      let item = [self.x, self.y];
-      self.x += 1;
-      if self.x >= self.x_range.end {
-        self.y += 1;
-        self.x = self.x_range.start;
-        if self.y >= self.y_range.end {
-          self.done = true;
-          self.y = self.y_range.start;
-        };
-      };
-
-      Some(item)
+      None
     }
   }
 
   fn size_hint(&self) -> (usize, Option<usize>) {
-    let len = self.x_range.len() * self.y_range.len();
+    let len = self.area() as usize;
     (len, Some(len))
+  }
+
+  fn count(self) -> usize {
+    self.len()
   }
 }
 
-impl ExactSizeIterator for XYIter {}
+impl ExactSizeIterator for XYIter {
+  fn len(&self) -> usize {
+    self.area() as usize
+  }
+}
 
 pub fn stringify_color(color: Color) -> String {
   format!("({}, {}, {})", color[0], color[1], color[2])
@@ -116,6 +120,20 @@ impl ZipFilesMap {
 
   pub fn with_capacity(capacity: usize) -> Self {
     ZipFilesMap { map: fx_hash_map_with_capacity(capacity) }
+  }
+
+  pub fn try_get(&self, name: impl AsRef<Path>) -> Result<&Vec<u8>, Error> {
+    let name = name.as_ref();
+    self.get(name).ok_or_else(|| {
+      Error::from(format!("could not find file {} in zip", name.display()))
+    })
+  }
+
+  pub fn try_get_mut(&mut self, name: impl AsRef<Path>) -> Result<&mut Vec<u8>, Error> {
+    let name = name.as_ref();
+    self.get_mut(name).ok_or_else(|| {
+      Error::from(format!("could not find file {} in zip", name.display()))
+    })
   }
 
   pub fn get(&self, name: impl AsRef<Path>) -> Option<&Vec<u8>> {

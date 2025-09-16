@@ -61,13 +61,16 @@ impl ParseCsv for Adjacency {
   }
 
   fn serialize_record(&self) -> csv::StringRecord {
+    let [start_x, start_y] = stringify_maybe_pos(self.start);
+    let [stop_x, stop_y] = stringify_maybe_pos(self.stop);
+
     csv::StringRecord::from(vec![
       self.from_id.to_string(),
       self.to_id.to_string(),
       self.kind.to_str().to_owned(),
       stringify_maybe_num(self.through),
-      stringify_maybe_pos(self.start),
-      stringify_maybe_pos(self.stop),
+      start_x, start_y,
+      stop_x, stop_y,
       self.rule_name.clone(),
       self.comment.clone()
     ])
@@ -87,23 +90,6 @@ impl Ord for Adjacency {
     self.rule_name.cmp(&other.rule_name)
       .then_with(|| self.comment.cmp(&other.comment))
       .then_with(|| self.kind.cmp(&other.kind))
-  }
-}
-
-impl fmt::Display for Adjacency {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(
-      f,
-      "{};{};{};{};{};{};{};{}",
-      self.from_id,
-      self.to_id,
-      self.kind.to_str(),
-      stringify_maybe_num(self.through),
-      stringify_maybe_pos(self.start),
-      stringify_maybe_pos(self.stop),
-      self.rule_name,
-      self.comment
-    )
   }
 }
 
@@ -180,12 +166,22 @@ impl FromStr for Num {
   }
 }
 
-fn stringify_maybe_num(num: Option<u32>) -> String {
-  num.map_or("-1".to_owned(), |n| n.to_string())
+impl fmt::Display for Num {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    if let Some(num) = self.0 {
+      write!(f, "{num}")
+    } else {
+      f.write_str("-1")
+    }
+  }
 }
 
-fn stringify_maybe_pos(pos: Option<[u32; 2]>) -> String {
-  pos.map_or("-1;-1".to_owned(), |[x, y]| format!("{};{}", x, y))
+fn stringify_maybe_num(num: Option<u32>) -> String {
+  Num(num).to_string()
+}
+
+fn stringify_maybe_pos(pos: Option<[u32; 2]>) -> [String; 2] {
+  pos.map_or([None; 2], |pos| pos.map(Some)).map(stringify_maybe_num)
 }
 
 #[cfg(test)]

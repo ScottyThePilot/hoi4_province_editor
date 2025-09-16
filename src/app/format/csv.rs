@@ -35,7 +35,7 @@ fn wrap_writer<W: Write>(inner: W) -> Writer<W> {
     .from_writer(inner)
 }
 
-pub trait ParseCsv: Sized + ToString {
+pub trait ParseCsv: Sized {
   const HEADER_RECORD: Option<&'static [&'static str]>;
   const FOOTER_RECORD: Option<&'static [&'static str]>;
 

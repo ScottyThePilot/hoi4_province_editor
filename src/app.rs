@@ -104,7 +104,7 @@ impl EventHandler for App {
     let interface = &*get_interface(&mut self.interface, viewport);
     graphics::clear(colors::NEUTRAL, gl);
 
-    if let Some(canvas) = &self.canvas {
+    if let Some(canvas) = &mut self.canvas {
       canvas.draw(ctx, interface, &mut self.glyph_cache, cursor_pos, gl);
     };
 

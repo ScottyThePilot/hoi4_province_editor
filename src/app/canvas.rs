@@ -30,6 +30,7 @@ pub struct Canvas {
   bundle: Bundle,
   history: History,
   texture: Texture,
+  texture_overlay: Option<Texture>,
   view_mode: ViewMode,
   problems: Vec<Problem>,
   unknown_terrains: Option<FxHashSet<String>>,
@@ -58,6 +59,7 @@ impl Canvas {
       bundle,
       history,
       texture,
+      texture_overlay: None,
       view_mode: ViewMode::default(),
       tool: ToolSettings::default(),
       problems,
@@ -99,11 +101,23 @@ impl Canvas {
     &self.bundle.config
   }
 
-  pub fn draw(&self, ctx: Context, interface: &Interface, glyph_cache: &mut FontGlyphCache, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
+  pub fn draw(&mut self, ctx: Context, interface: &Interface, glyph_cache: &mut FontGlyphCache, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     use super::alerts::PADDING;
 
     let transform = ctx.transform.append_transform(self.camera.display_matrix(interface));
     graphics::image(&self.texture, transform, gl);
+
+    let texture_overlay = self.bundle.map.get_rivers_overlay()
+      .filter(|_| self.show_river_overlay)
+      .map(|rivers_overlay| self.texture_overlay.get_or_insert_with(|| {
+        let texture_settings = TextureSettings::new().mag(Filter::Nearest);
+        let texture = Texture::from_image(&rivers_overlay, &texture_settings);
+        texture
+      }));
+
+    if let Some(texture_overlay) = texture_overlay {
+      graphics::image(texture_overlay, transform, gl);
+    };
 
     if self.camera.scale_factor() > 1.0 && self.show_province_boundaries {
       self.draw_boundaries(ctx, interface, gl);
@@ -273,6 +287,7 @@ impl Canvas {
     };
 
     self.show_river_overlay = !self.show_river_overlay;
+    self.texture_overlay = None;
 
     false
   }

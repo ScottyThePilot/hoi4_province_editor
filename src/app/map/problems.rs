@@ -1,4 +1,4 @@
-use fxhash::FxHashMap;
+use ahash::AHashMap;
 use graphics::context::Context;
 use graphics::rectangle::Rectangle;
 use graphics::ellipse::Ellipse;
@@ -9,7 +9,7 @@ use vecmath::Vector2;
 use crate::app::colors;
 use crate::app::canvas::CameraCombo;
 use super::{Bundle, Color, Map, Extents, boundary_to_line};
-use crate::util::{fx_hash_map_with_capacity, stringify_color, XYIter};
+use crate::util::{stringify_color, XYIter};
 use crate::util::uord::UOrd;
 
 use std::collections::hash_map::Entry;
@@ -134,8 +134,8 @@ pub fn analyze(bundle: &Bundle) -> Vec<Problem> {
   let extras = bundle.config.extra_warnings.enabled;
   let [width, height] = bundle.map.dimensions();
   let mut problems = Vec::new();
-  let mut province_extents = fx_hash_map_with_capacity::<Color, Extents>(bundle.map.provinces_count());
-  let mut borders: FxHashMap<UOrd<Color>, Vec<UOrd<Vector2<u32>>>> = FxHashMap::default();
+  let mut province_extents = AHashMap::<Color, Extents>::with_capacity(bundle.map.provinces_count());
+  let mut borders: AHashMap<UOrd<Color>, Vec<UOrd<Vector2<u32>>>> = AHashMap::default();
 
   for pos in XYIter::new(0..width, 0..height) {
     if pos[1] != height - 1 && is_crossing_at(&bundle.map, pos) {

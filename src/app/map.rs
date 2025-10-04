@@ -3,16 +3,15 @@ mod history;
 mod bridge;
 mod problems;
 
+use ahash::{AHashMap, AHashSet};
 use graphics::types::Color as DrawColor;
 use image::{Rgb, RgbImage, Rgba, RgbaImage};
-use fxhash::{FxHashMap, FxHashSet};
 use rand::Rng;
 use rayon::iter::ParallelIterator;
 use serde::{Serialize, Deserialize};
 use vecmath::Vector2;
 
 use crate::config::Config;
-use crate::util::fx_hash_map_with_capacity;
 use crate::util::XYIter;
 use crate::util::uord::UOrd;
 use crate::app::colors;
@@ -140,8 +139,8 @@ impl Bundle {
   }
 
   /// Search for terrains that are not included in the config
-  pub fn search_unknown_terrains(&self) -> Option<FxHashSet<String>> {
-    let mut unknown_terrains = FxHashSet::default();
+  pub fn search_unknown_terrains(&self) -> Option<AHashSet<String>> {
+    let mut unknown_terrains = AHashSet::default();
     for province_data in self.map.base.province_data_map.values() {
       if !self.config.terrains.contains_key(&province_data.terrain) {
         unknown_terrains.insert(province_data.terrain.clone());
@@ -165,8 +164,8 @@ impl Bundle {
 #[derive(Clone)]
 pub struct MapBase {
   color_buffer: Arc<RgbImage>,
-  province_data_map: Arc<FxHashMap<Color, Arc<ProvinceData>>>,
-  connection_data_map: Arc<FxHashMap<UOrd<Color>, Arc<ConnectionData>>>,
+  province_data_map: Arc<AHashMap<Color, Arc<ProvinceData>>>,
+  connection_data_map: Arc<AHashMap<UOrd<Color>, Arc<ConnectionData>>>,
   rivers_overlay: Option<Arc<RgbaImage>>
 }
 
@@ -183,7 +182,7 @@ impl std::fmt::Debug for MapBase {
 #[derive(Debug)]
 pub struct Map {
   base: MapBase,
-  boundaries: FxHashMap<UOrd<Vector2<u32>>, bool>,
+  boundaries: AHashMap<UOrd<Vector2<u32>>, bool>,
   preserved_unsupported_adjacencies: Vec<Adjacency>,
   preserved_id_count: Option<u32>
 }
@@ -313,7 +312,7 @@ impl Map {
   }
 
   pub fn validate_pixel_counts(&self) -> bool {
-    let mut pixel_counts = FxHashMap::<Color, u64>::default();
+    let mut pixel_counts = AHashMap::<Color, u64>::default();
     for &Rgb(pixel) in self.base.color_buffer.pixels() {
       *pixel_counts.entry(pixel).or_insert(0) += 1;
     };
@@ -327,10 +326,10 @@ impl Map {
     true
   }
 
-  pub fn calculate_coastal_provinces(&self) -> FxHashMap<Color, Option<bool>> {
+  pub fn calculate_coastal_provinces(&self) -> AHashMap<Color, Option<bool>> {
     let mut coastal_provinces = self.base.province_data_map.keys()
       .map(|&color| (color, Some(false)))
-      .collect::<FxHashMap<Color, Option<bool>>>();
+      .collect::<AHashMap<Color, Option<bool>>>();
 
     let coastal_neighbors = UOrd::new(ProvinceKind::Land, ProvinceKind::Sea);
     for neighboring in self.calculate_neighbors() {
@@ -345,8 +344,8 @@ impl Map {
   }
 
   /// Returns a hashset of uords describing which provinces are touching each other
-  fn calculate_neighbors(&self) -> FxHashSet<UOrd<Color>> {
-    let mut neighbors = FxHashSet::default();
+  fn calculate_neighbors(&self) -> AHashSet<UOrd<Color>> {
+    let mut neighbors = AHashSet::default();
     for (pos_a, pos_b) in self.iter_pixel_pairs() {
       let color_a = self.get_color_at(pos_a);
       let color_b = self.get_color_at(pos_b);
@@ -359,7 +358,7 @@ impl Map {
   }
 
   pub fn recalculate_all_boundaries(&mut self) {
-    self.boundaries = FxHashMap::default();
+    self.boundaries = AHashMap::default();
     for (pos_a, pos_b) in self.iter_pixel_pairs() {
       let b = UOrd::new(pos_a, pos_b);
       let rel = b.map(|pos| self.get_color_at(pos));
@@ -404,7 +403,7 @@ impl Map {
     };
   }
 
-  fn iter_pixels_adjacent(&self, pos: Vector2<u32>) -> impl Iterator<Item = Vector2<u32>> {
+  fn iter_pixels_adjacent(&self, pos: Vector2<u32>) -> impl Iterator<Item = Vector2<u32>> + 'static {
     let [width, height] = self.dimensions();
     CARDINAL.into_iter()
       .filter_map(move |diff| {
@@ -418,7 +417,7 @@ impl Map {
       })
   }
 
-  fn iter_pixel_pairs(&self) -> impl Iterator<Item = (Vector2<u32>, Vector2<u32>)> {
+  fn iter_pixel_pairs(&self) -> impl Iterator<Item = (Vector2<u32>, Vector2<u32>)> + 'static {
     let [width, height] = self.dimensions();
     XYIter::new(0..width, 0..height)
       .flat_map(move |pos| {
@@ -428,7 +427,7 @@ impl Map {
       })
   }
 
-  fn iter_pixel_pairs_extents(&self, mut extents: Extents) -> impl Iterator<Item = (Vector2<u32>, Vector2<u32>)> {
+  fn iter_pixel_pairs_extents(&self, mut extents: Extents) -> impl Iterator<Item = (Vector2<u32>, Vector2<u32>)> + 'static {
     let [width, height] = self.dimensions();
     extents.lower[0] = extents.lower[0].saturating_sub(1);
     extents.lower[1] = extents.lower[1].saturating_sub(1);
@@ -484,7 +483,7 @@ impl Map {
   /// Replaces the keys of all connections containing one color with another color
   fn rekey_connections_raw(&mut self, which: Color, color: Color) {
     if !self.base.connection_data_map.is_empty() {
-      let mut new_connection_data_map = fx_hash_map_with_capacity(self.connections_count());
+      let mut new_connection_data_map = AHashMap::with_capacity(self.connections_count());
       for (&rel, connection_data) in self.base.connection_data_map.iter() {
         // `through` does not get replaced here because it should
         // not be one of the colors that compose `rel`
@@ -621,7 +620,7 @@ impl Map {
 
     fn convert(f: f64) -> u64 {
       const BIT: u64 = 1 << (64 - 1);
-      let u = unsafe { std::mem::transmute::<f64, u64>(f) };
+      let u = f.to_bits();
       if u & BIT == 0 { u | BIT } else { !u }
     }
 
@@ -1066,7 +1065,7 @@ fn random_color<R: Rng>(rng: &mut R, kind: ProvinceKind) -> Color {
   use crate::util::hsl::hsl_to_rgb;
 
   let lightness: f32 = match kind {
-    ProvinceKind::Unknown => return [rng.gen::<u8>(); 3],
+    ProvinceKind::Unknown => return [rng.r#gen::<u8>(); 3],
     ProvinceKind::Land => rng.gen_range(0.5..1.0),
     ProvinceKind::Lake => rng.gen_range(0.2..0.5),
     ProvinceKind::Sea  => rng.gen_range(0.04..0.2)
@@ -1094,13 +1093,13 @@ pub trait ColorKeyable {
   fn contains_color(&self, color: Color) -> bool;
 }
 
-impl<T> ColorKeyable for FxHashMap<Color, T> {
+impl<T> ColorKeyable for AHashMap<Color, T> {
   fn contains_color(&self, color: Color) -> bool {
     self.contains_key(&color)
   }
 }
 
-impl ColorKeyable for FxHashSet<Color> {
+impl ColorKeyable for AHashSet<Color> {
   fn contains_color(&self, color: Color) -> bool {
     self.contains(&color)
   }

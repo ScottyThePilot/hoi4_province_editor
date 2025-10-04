@@ -1,5 +1,5 @@
+use ahash::AHashSet;
 use fs_err::File;
-use fxhash::FxHashSet;
 use graphics::Transformed;
 use graphics::types::Color as DrawColor;
 use graphics::context::Context;
@@ -33,7 +33,7 @@ pub struct Canvas {
   texture_overlay: Option<Texture>,
   view_mode: ViewMode,
   problems: Vec<Problem>,
-  unknown_terrains: Option<FxHashSet<String>>,
+  unknown_terrains: Option<AHashSet<String>>,
   location: Location,
   show_province_ids: bool,
   show_province_boundaries: bool,
@@ -802,7 +802,7 @@ impl Lasso {
     self.0.push(point);
   }
 
-  fn iter(&self) -> std::iter::Copied<std::slice::Iter<Vector2<f64>>> {
+  fn iter(&self) -> std::iter::Copied<std::slice::Iter<'_, Vector2<f64>>> {
     self.0.iter().copied()
   }
 }

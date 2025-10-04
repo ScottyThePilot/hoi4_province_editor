@@ -1,12 +1,11 @@
+use ahash::AHashMap;
 use fs_err as fs;
-use fxhash::FxHashMap;
 use itertools::Itertools;
 use serde::Deserialize;
 use thiserror::Error;
 
 use crate::app::map::Color;
 use crate::app::map::ProvinceKind;
-use crate::util::fx_hash_map_with_capacity;
 
 const DEFAULT_CONFIG: &[u8] = include_bytes!("../assets/hoi4pe_config_default.toml");
 
@@ -18,7 +17,7 @@ pub struct Config {
   pub change_view_mode_on_undo: bool,
   pub generate_coastal_on_save: bool,
   #[serde(alias = "terrain")]
-  pub terrains: FxHashMap<String, Terrain>,
+  pub terrains: AHashMap<String, Terrain>,
   pub extra_warnings: ExtraWarnings
 }
 
@@ -117,8 +116,8 @@ pub enum LoadConfigError {
   FormatError(#[from] toml::de::Error)
 }
 
-fn default_terrains() -> FxHashMap<String, Terrain> {
-  let mut terrains = fx_hash_map_with_capacity(DEFAULT_TERRAINS.len());
+fn default_terrains() -> AHashMap<String, Terrain> {
+  let mut terrains = AHashMap::with_capacity(DEFAULT_TERRAINS.len());
   for &(color, name, kind) in DEFAULT_TERRAINS {
     terrains.insert(name.to_owned(), Terrain {  color, kind });
   };
@@ -126,7 +125,7 @@ fn default_terrains() -> FxHashMap<String, Terrain> {
   terrains
 }
 
-fn add_default_terrains(terrains: &mut FxHashMap<String, Terrain>) {
+fn add_default_terrains(terrains: &mut AHashMap<String, Terrain>) {
   // The 'unknown' terrain should not be user-overloadable
   terrains.remove("unknown");
   for &(color, name, kind) in DEFAULT_TERRAINS {

@@ -1,6 +1,6 @@
 //! Anything relating to loading or saving map data
+use ahash::AHashMap;
 use fs_err::{File, OpenOptions};
-use fxhash::FxHashMap;
 use defy::{ContextualError, Contextualize};
 use image::{Rgb, Rgba, RgbImage, RgbaImage, Pixel, DynamicImage, ColorType};
 use image::codecs::bmp::{BmpDecoder, BmpEncoder};
@@ -9,7 +9,7 @@ use super::*;
 use crate::app::format::{Adjacency, Definition, ParseCsv};
 use crate::config::Config;
 use crate::error::Error;
-use crate::util::{fx_hash_map_with_capacity, fx_hash_set_with_capacity, ZipFilesMap};
+use crate::util::files::ZipFilesMap;
 use crate::util::uord::UOrd;
 
 use std::path::{Path, PathBuf};
@@ -185,10 +185,10 @@ fn construct_map_data(
   // Initially convert the definition table into a province data map
   let mut definition_map = definition_table.into_iter()
     .map(|d| (d.rgb, ProvinceData::from_definition_config(d, &config)))
-    .collect::<FxHashMap<Color, ProvinceData>>();
+    .collect::<AHashMap<Color, ProvinceData>>();
   // Loop through every pixel in the color buffer, ensuring that the resulting province data map
   // will be valid and will have no provinces mapping to colors not on the color buffer
-  let mut province_data_map = FxHashMap::default();
+  let mut province_data_map = AHashMap::default();
   for (x, y, &Rgb(pixel)) in color_buffer.enumerate_pixels() {
     // If this color isn't in the new province data map, but it is in the definition table,
     // take it from the former and put it in the latter
@@ -218,7 +218,7 @@ fn construct_map_data(
   // Loop through the entries in the adjacencies table, converting ids to colors using `color_index`,
   // since the adjacencies map is indexed by color instead of id
   let mut preserved_unsupported_adjacencies = Vec::new();
-  let mut connection_data_map = fx_hash_map_with_capacity(adjacencies_table.len());
+  let mut connection_data_map = AHashMap::with_capacity(adjacencies_table.len());
   for a in adjacencies_table.into_iter() {
     if let Some(rel) = UOrd::new(a.from_id, a.to_id).map_maybe(get_color_index) {
       if let Some(connection_data) = ConnectionData::from_adjacency(a.clone(), get_color_index) {
@@ -252,7 +252,7 @@ fn construct_map_data(
       connection_data_map: Arc::new(connection_data_map),
       rivers_overlay: rivers_overlay.map(Arc::new)
     },
-    boundaries: FxHashMap::default(),
+    boundaries: AHashMap::default(),
     preserved_unsupported_adjacencies,
     preserved_id_count: id_data
   };
@@ -264,13 +264,13 @@ fn construct_map_data(
 
 pub(super) fn recolor_everything(
   color_buffer: &mut RgbImage,
-  province_data_map: &mut FxHashMap<Color, Arc<ProvinceData>>,
-  connection_data_map: &mut FxHashMap<UOrd<Color>, Arc<ConnectionData>>
+  province_data_map: &mut AHashMap<Color, Arc<ProvinceData>>,
+  connection_data_map: &mut AHashMap<UOrd<Color>, Arc<ConnectionData>>
 ) {
-  let mut colors_list = fx_hash_set_with_capacity(province_data_map.len());
-  let mut replacement_map = fx_hash_map_with_capacity(province_data_map.len());
+  let mut colors_list = AHashSet::with_capacity(province_data_map.len());
+  let mut replacement_map = AHashMap::with_capacity(province_data_map.len());
 
-  let mut new_province_data_map = fx_hash_map_with_capacity(province_data_map.len());
+  let mut new_province_data_map = AHashMap::with_capacity(province_data_map.len());
   for (previous_color, province_data) in province_data_map.drain() {
     let color = random_color_pure(&colors_list, province_data.kind);
     let opt = colors_list.insert(color);
@@ -283,7 +283,7 @@ pub(super) fn recolor_everything(
 
   *province_data_map = new_province_data_map;
 
-  let mut new_connection_data_map = fx_hash_map_with_capacity(connection_data_map.len());
+  let mut new_connection_data_map = AHashMap::with_capacity(connection_data_map.len());
   for (previous_rel, mut connection_data) in connection_data_map.drain() {
     // Replace `through`'s color with the new one
     let connection_data_mut = Arc::make_mut(&mut connection_data);
@@ -427,7 +427,7 @@ fn deconstruct_map_data_preserve_ids(bundle: &Bundle) -> Result<MapData, Error> 
   };
 
   let mut definitions_table = Vec::with_capacity(count);
-  let mut color_index = fx_hash_map_with_capacity(definitions_table.len());
+  let mut color_index = AHashMap::with_capacity(definitions_table.len());
   for definition in sparse_definitions_table {
     let definition = definition.expect("infallible");
     color_index.insert(definition.rgb, definition.id);
@@ -456,7 +456,7 @@ fn deconstruct_map_data_no_preserve_ids(bundle: &Bundle) -> Result<MapData, Erro
   definitions_table.sort();
 
   let mut id = 1;
-  let mut color_index = fx_hash_map_with_capacity(definitions_table.len());
+  let mut color_index = AHashMap::with_capacity(definitions_table.len());
   for definition in definitions_table.iter_mut() {
     color_index.insert(definition.rgb, id);
     definition.id = id;

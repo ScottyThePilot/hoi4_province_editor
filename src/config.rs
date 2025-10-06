@@ -46,11 +46,19 @@ impl Config {
     self.terrains.get(terrain).map(|t| t.kind)
   }
 
-  pub fn cycle_terrains(&self, terrain: Option<&str>) -> String {
+  pub fn cycle_terrains(&self, terrain: Option<&str>, backwards: bool) -> String {
     if let Some(target_terrain) = terrain {
-      for (terrain, next_terrain) in self.terrains.keys().tuple_windows() {
-        if terrain == target_terrain {
-          return next_terrain.clone();
+      for tuple in self.terrains.keys().tuple_windows() {
+        if backwards {
+          let (next_terrain, terrain) = tuple;
+          if terrain == target_terrain {
+            return next_terrain.clone();
+          };
+        } else {
+          let (terrain, next_terrain) = tuple;
+          if terrain == target_terrain {
+            return next_terrain.clone();
+          };
         };
       };
     };

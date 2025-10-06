@@ -13,12 +13,12 @@ use vecmath::Vector2;
 
 use crate::config::Config;
 use crate::util::XYIter;
+use crate::util::files::Location;
 use crate::util::uord::UOrd;
 use crate::app::colors;
 use crate::app::format::*;
 use crate::error::Error;
 
-pub use self::bridge::{Location, IntoLocation};
 pub use self::bridge::{write_rgb_bmp_image, read_rgb_bmp_image};
 pub use self::history::History;
 pub use self::problems::Problem;

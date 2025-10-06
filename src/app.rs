@@ -4,6 +4,7 @@ pub mod format;
 pub mod interface;
 pub mod map;
 
+use defy::Contextualize;
 use glutin::window::CursorIcon;
 use graphics::Viewport;
 use graphics::context::Context;
@@ -15,10 +16,10 @@ use vecmath::Vector2;
 use crate::error::Error;
 use crate::font;
 use crate::events::{EventHandler, KeyMods};
+use crate::util::files::{Location, IntoLocation};
 use self::alerts::Alerts;
 use self::canvas::{Canvas, ToolMode, ViewMode};
 use self::interface::{Interface, ButtonId, get_interface};
-use self::map::{Location, IntoLocation};
 
 use std::path::{Path, PathBuf};
 use std::fmt;
@@ -127,7 +128,7 @@ impl EventHandler for App {
       (Some(_), true, Key::R) if mods.ctrl && mods.alt => self.action_reveal_map(),
       (Some(canvas), true, Key::Z) if mods.ctrl => canvas.undo(),
       (Some(canvas), true, Key::Y) if mods.ctrl => canvas.redo(),
-      (Some(canvas), true, Key::Space) => canvas.cycle_tool_brush(interface, cursor_pos, &mut self.alerts),
+      (Some(canvas), true, Key::Space) => canvas.cycle_tool_brush(interface, cursor_pos, mods.shift, &mut self.alerts),
       (Some(canvas), true, Key::Escape) => canvas.cancel_tool(),
       (Some(canvas), true, Key::Return) => canvas.finish_tool(),
       (Some(canvas), true, Key::C) if mods.shift => canvas.calculate_coastal_provinces(),
@@ -447,13 +448,13 @@ fn file_dialog_save(archive: bool) -> Option<Location> {
       .add_filter("ZIP Archive", &["zip"])
       .show_save_single_file()
       .expect("error displaying file dialog")
-      .map(Location::Zip)
+      .map(Location::ZipArchive)
   } else {
     FileDialog::new()
       .set_location(&root)
       .show_open_single_dir()
       .expect("error displaying file dialog")
-      .map(Location::Dir)
+      .map(Location::Directory)
   }
 }
 
@@ -468,13 +469,13 @@ fn file_dialog_open(archive: bool) -> Option<Location> {
       .add_filter("ZIP Archive", &["zip"])
       .show_open_single_file()
       .expect("error displaying file dialog")
-      .map(Location::Zip)
+      .map(Location::ZipArchive)
   } else {
     FileDialog::new()
       .set_location(&root)
       .show_open_single_dir()
       .expect("error displaying file dialog")
-      .map(Location::Dir)
+      .map(Location::Directory)
   }
 }
 
@@ -501,15 +502,18 @@ fn msg_dialog_unsaved_changes() -> bool {
 pub fn reveal_in_file_browser(path: impl AsRef<Path>) -> Result<(), Error> {
   use std::process::Command;
 
-  let path = dunce::canonicalize(path)?;
+  let path = crate::util::files::canonicalize(path)?;
   if cfg!(target_os = "windows") {
-    Command::new("explorer").arg(&path).status()?;
+    Command::new("explorer").arg(&path).status()
+      .context("failed to execute command 'explorer'")?;
     Ok(())
   } else if cfg!(target_os = "macos") {
-    Command::new("open").arg(&path).status()?;
+    Command::new("open").arg(&path).status()
+      .context("failed to execute command 'open'")?;
     Ok(())
   } else if cfg!(target_os = "linux") {
-    Command::new("xdg-open").arg(&path).status()?;
+    Command::new("xdg-open").arg(&path).status()
+      .context("failed to execute command 'xdg-open'")?;
     Ok(())
   } else {
     Err("unable to reveal in file browser".into())

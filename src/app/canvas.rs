@@ -1,5 +1,4 @@
 use ahash::AHashSet;
-use fs_err::File;
 use graphics::Transformed;
 use graphics::types::Color as DrawColor;
 use graphics::context::Context;
@@ -17,6 +16,7 @@ use super::format::DefinitionKind;
 use crate::config::Config;
 use crate::font::{self, FONT_SIZE};
 use crate::util::stringify_color;
+use crate::util::files::Location;
 use crate::util::uord::UOrd;
 use crate::error::Error;
 
@@ -402,7 +402,7 @@ impl Canvas {
     self.tool.mode = mode;
   }
 
-  pub fn cycle_tool_brush(&mut self, interface: &Interface, cursor_pos: Option<Vector2<f64>>, alerts: &mut Alerts) {
+  pub fn cycle_tool_brush(&mut self, interface: &Interface, cursor_pos: Option<Vector2<f64>>, backwards: bool, alerts: &mut Alerts) {
     match self.view_mode {
       ViewMode::Color => {
         let kind = self.tool.kind_brush
@@ -420,26 +420,26 @@ impl Canvas {
       },
       ViewMode::Kind => {
         let kind = self.tool.kind_brush;
-        let kind = cycle_kinds(kind);
+        let kind = cycle_kinds(kind, backwards);
         self.tool.kind_brush = Some(kind);
         alerts.push(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
       },
       ViewMode::Terrain => {
         let terrain = self.tool.terrain_brush.as_deref();
-        let terrain = self.bundle.config.cycle_terrains(terrain);
+        let terrain = self.bundle.config.cycle_terrains(terrain, backwards);
         alerts.push(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
         self.tool.terrain_brush = Some(terrain);
       },
       ViewMode::Continent => {
         let continent = self.tool.continent_brush;
-        let continent = cycle_continents(continent);
+        let continent = cycle_continents(continent, backwards);
         self.tool.continent_brush = Some(continent);
         alerts.push(Ok(format!("Brush set to continent {}", continent)));
       },
       ViewMode::Coastal => (),
       ViewMode::Adjacencies => {
         let adjacency_kind = self.tool.adjacency_brush;
-        let adjacency_kind = cycle_connection(adjacency_kind);
+        let adjacency_kind = cycle_connection(adjacency_kind, backwards);
         self.tool.adjacency_brush = Some(adjacency_kind);
         alerts.push(Ok(format!("Brush set to adjacencies {}", adjacency_kind.to_str().to_uppercase())));
       }
@@ -977,7 +977,8 @@ impl Camera {
 }
 
 fn export_image_buffer<P: AsRef<Path>>(path: P, image: RgbImage) -> Result<(), Error> {
-  super::map::write_rgb_bmp_image(BufWriter::new(File::create(path.as_ref())?), &image)
+  let file = crate::util::files::create_file(path.as_ref())?;
+  super::map::write_rgb_bmp_image(BufWriter::new(file), &image)
 }
 
 #[inline]
@@ -985,25 +986,32 @@ fn drawable_color(color: Color) -> DrawColor {
   [color[0] as f32 / 255.0, color[1] as f32 / 255.0, color[2] as f32 / 255.0, 1.0]
 }
 
-fn cycle_kinds<P>(kind: Option<P>) -> DefinitionKind
+fn cycle_kinds<P>(kind: Option<P>, backwards: bool) -> DefinitionKind
 where P: Into<ProvinceKind> {
   match kind.map(P::into) {
-    Some(ProvinceKind::Land) => DefinitionKind::Sea,
-    Some(ProvinceKind::Sea) => DefinitionKind::Lake,
-    Some(ProvinceKind::Lake) => DefinitionKind::Land,
+    Some(ProvinceKind::Land) => if backwards { DefinitionKind::Lake } else { DefinitionKind::Sea },
+    Some(ProvinceKind::Sea) => if backwards { DefinitionKind::Land } else { DefinitionKind::Lake },
+    Some(ProvinceKind::Lake) => if backwards { DefinitionKind::Sea } else { DefinitionKind::Land },
     Some(ProvinceKind::Unknown) | None => DefinitionKind::Land
   }
 }
 
-fn cycle_continents(continent: Option<u16>) -> u16 {
-  continent.map_or(0, |continent| (continent + 1) % 16)
+fn cycle_continents(continent: Option<u16>, backwards: bool) -> u16 {
+  const MAX_CONTINENTS: u16 = 32;
+  continent.map_or(0, |continent| {
+    if backwards {
+      (continent + MAX_CONTINENTS - 1) % MAX_CONTINENTS
+    } else {
+      (continent + 1) % MAX_CONTINENTS
+    }
+  })
 }
 
-fn cycle_connection(connection_kind: Option<ConnectionKind>) -> ConnectionKind {
+fn cycle_connection(connection_kind: Option<ConnectionKind>, backwards: bool) -> ConnectionKind {
   match connection_kind {
     None => ConnectionKind::Strait,
-    Some(ConnectionKind::Strait) => ConnectionKind::Canal,
-    Some(ConnectionKind::Canal) => ConnectionKind::Impassable,
-    Some(ConnectionKind::Impassable) => ConnectionKind::Strait,
+    Some(ConnectionKind::Strait) => if backwards { ConnectionKind::Impassable } else { ConnectionKind::Canal },
+    Some(ConnectionKind::Canal) => if backwards { ConnectionKind::Strait } else { ConnectionKind::Impassable },
+    Some(ConnectionKind::Impassable) => if backwards { ConnectionKind::Canal } else { ConnectionKind::Strait },
   }
 }

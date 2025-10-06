@@ -2,7 +2,7 @@
 name = "hoi4_province_editor"
 version = "0.4.0"
 authors = ["ScottyThePilot <scotty.codes@gmail.com>"]
-edition = "2021"
+edition = "2024"
 description = "Map editor application for Hearts of Iron IV"
 readme = "README.md"
 repository = "https://github.com/ScottyThePilot/hoi4_province_editor"

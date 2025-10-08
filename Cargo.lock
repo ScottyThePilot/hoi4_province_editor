@@ -284,6 +284,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-targets",
 ]
@@ -1042,6 +1043,7 @@ dependencies = [
  "thiserror",
  "toml",
  "unicase",
+ "uord",
  "vecmath",
  "zip",
 ]
@@ -2251,6 +2253,14 @@ name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+
+[[package]]
+name = "uord"
+version = "0.1.0"
+source = "git+https://github.com/ScottyThePilot/uord#02bfca67235923876aa26c4442b03b408e9418e0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "vecmath"

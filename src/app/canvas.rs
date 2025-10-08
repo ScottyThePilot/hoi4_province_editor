@@ -6,6 +6,7 @@ use graphics::ellipse::Ellipse;
 use image::RgbImage;
 use itertools::Itertools;
 use opengl_graphics::{Filter, GlGraphics, Texture, TextureSettings};
+use uord::UOrd2 as UOrd;
 use vecmath::{Matrix2x3, Vector2};
 
 use super::{colors, FontGlyphCache};
@@ -17,7 +18,6 @@ use crate::config::Config;
 use crate::font::{self, FONT_SIZE};
 use crate::util::stringify_color;
 use crate::util::files::Location;
-use crate::util::uord::UOrd;
 use crate::error::Error;
 
 use std::path::Path;
@@ -199,7 +199,7 @@ impl Canvas {
       if is_special {
         let rel = boundary.map(|pos| self.bundle.map.get_color_at(pos));
         if self.bundle.map.get_connection(rel).kind == ConnectionKind::Impassable {
-          let (b1, b2) = boundary_to_line(boundary).into_tuple();
+          let [b1, b2] = boundary_to_line(boundary).into_array();
           let b1 = self.camera.compute_position(interface, [b1[0] as f64, b1[1] as f64]);
           let b2 = self.camera.compute_position(interface, [b2[0] as f64, b2[1] as f64]);
           if self.camera.within_viewport(interface, b1) || self.camera.within_viewport(interface, b2) {
@@ -212,7 +212,7 @@ impl Canvas {
 
   fn draw_boundaries(&self, ctx: Context, interface: &Interface, gl: &mut GlGraphics) {
     for (boundary, _is_special) in self.bundle.map.iter_boundaries() {
-      let (b1, b2) = boundary_to_line(boundary).into_tuple();
+      let [b1, b2] = boundary_to_line(boundary).into_array();
       let b1 = self.camera.compute_position(interface, [b1[0] as f64, b1[1] as f64]);
       let b2 = self.camera.compute_position(interface, [b2[0] as f64, b2[1] as f64]);
       if self.camera.within_viewport(interface, b1) || self.camera.within_viewport(interface, b2) {
@@ -604,7 +604,7 @@ impl Canvas {
       let which = self.bundle.map.get_color_at(pos);
       if let Some(kind) = self.tool.adjacency_brush {
         if let Some(color) = self.tool.adjacency_selection.take() {
-          self.history.add_or_remove_connection(&mut self.bundle, UOrd::new(which, color), kind);
+          self.history.add_or_remove_connection(&mut self.bundle, UOrd::new([which, color]), kind);
         } else {
           self.tool.adjacency_selection = Some(which);
         };

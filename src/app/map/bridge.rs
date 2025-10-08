@@ -1,19 +1,20 @@
 //! Anything relating to loading or saving map data
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use defy::Contextualize;
 use image::{Rgb, Rgba, RgbImage, RgbaImage, Pixel, DynamicImage, ColorType};
 use image::codecs::bmp::{BmpDecoder, BmpEncoder};
+use uord::UOrd2 as UOrd;
 
-use super::*;
+use super::{Color, Bundle, MapBase, Map, ProvinceData, ConnectionData, random_color_pure};
 use crate::app::format::{Adjacency, Definition, ParseCsv};
 use crate::config::Config;
 use crate::error::Error;
 use crate::util::files::Location;
-use crate::util::uord::UOrd;
 
 use std::collections::hash_map::Entry;
-use std::io::{self, Cursor, Read, Write};
 use std::cmp::Ordering;
+use std::io::{self, Cursor, Read, Write};
+use std::sync::Arc;
 
 pub(super) fn load_bundle(location: &Location, config: Config) -> Result<Bundle, Error> {
   let (province_image, definition_table, adjacencies_table, rivers) = location.clone().manipulate_files(|files| {
@@ -89,7 +90,7 @@ fn construct_map_data(
   let mut preserved_unsupported_adjacencies = Vec::new();
   let mut connection_data_map = AHashMap::with_capacity(adjacencies_table.len());
   for a in adjacencies_table.into_iter() {
-    if let Some(rel) = UOrd::new(a.from_id, a.to_id).map_maybe(get_color_index) {
+    if let Some(rel) = UOrd::new([a.from_id, a.to_id]).try_map_opt(get_color_index) {
       if let Some(connection_data) = ConnectionData::from_adjacency(a.clone(), get_color_index) {
         connection_data_map.insert(rel, Arc::new(connection_data));
       } else {
@@ -158,7 +159,7 @@ pub(super) fn recolor_everything(
     let connection_data_mut = Arc::make_mut(&mut connection_data);
     connection_data_mut.through = connection_data_mut.through
       .and_then(|t| replacement_map.get(&t).copied());
-    if let Some(rel) = previous_rel.map_maybe(|color| replacement_map.get(&color).copied()) {
+    if let Some(rel) = previous_rel.try_map_opt(|color| replacement_map.get(&color).copied()) {
       new_connection_data_map.insert(rel, connection_data);
     };
   };

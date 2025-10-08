@@ -1,11 +1,11 @@
 //! Structures for managing the history state and abstracting changes applied to the map
+use uord::UOrd2 as UOrd;
 use vecmath::Vector2;
 
 use crate::app::canvas::{ViewMode, BrushMask};
 use crate::app::map::{Bundle, Color, Extents, Map, MapBase, ProvinceKind, ConnectionData, ConnectionKind};
 use crate::app::map::bridge::recolor_everything;
 use crate::util::XYIter;
-use crate::util::uord::UOrd;
 
 use std::collections::VecDeque;
 use std::sync::Arc;

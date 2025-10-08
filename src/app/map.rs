@@ -9,12 +9,12 @@ use image::{Rgb, RgbImage, Rgba, RgbaImage};
 use rand::Rng;
 use rayon::iter::ParallelIterator;
 use serde::{Serialize, Deserialize};
+use uord::UOrd2 as UOrd;
 use vecmath::Vector2;
 
 use crate::config::Config;
 use crate::util::XYIter;
 use crate::util::files::Location;
-use crate::util::uord::UOrd;
 use crate::app::colors;
 use crate::app::format::*;
 use crate::error::Error;
@@ -331,10 +331,10 @@ impl Map {
       .map(|&color| (color, Some(false)))
       .collect::<AHashMap<Color, Option<bool>>>();
 
-    let coastal_neighbors = UOrd::new(ProvinceKind::Land, ProvinceKind::Sea);
+    let coastal_neighbors = UOrd::new([ProvinceKind::Land, ProvinceKind::Sea]);
     for neighboring in self.calculate_neighbors() {
       if neighboring.map(|n| self.get_province(n).kind) == coastal_neighbors {
-        let (a, b) = neighboring.into_tuple();
+        let [a, b] = neighboring.into_array();
         coastal_provinces.insert(a, Some(true));
         coastal_provinces.insert(b, Some(true));
       };
@@ -350,7 +350,7 @@ impl Map {
       let color_a = self.get_color_at(pos_a);
       let color_b = self.get_color_at(pos_b);
       if color_a != color_b {
-        neighbors.insert(UOrd::new(color_a, color_b));
+        neighbors.insert(UOrd::new([color_a, color_b]));
       };
     };
 
@@ -360,7 +360,7 @@ impl Map {
   pub fn recalculate_all_boundaries(&mut self) {
     self.boundaries = AHashMap::default();
     for (pos_a, pos_b) in self.iter_pixel_pairs() {
-      let b = UOrd::new(pos_a, pos_b);
+      let b = UOrd::new([pos_a, pos_b]);
       let rel = b.map(|pos| self.get_color_at(pos));
       if rel.is_distinct() {
         let is_special = self.has_connection(rel);
@@ -371,7 +371,7 @@ impl Map {
 
   pub fn recalculate_boundaries_extents(&mut self, extents: Extents) {
     for (pos_a, pos_b) in self.iter_pixel_pairs_extents(extents) {
-      let b = UOrd::new(pos_a, pos_b);
+      let b = UOrd::new([pos_a, pos_b]);
       let rel = b.map(|pos| self.get_color_at(pos));
       if rel.is_distinct() {
         let is_special = self.has_connection(rel);
@@ -384,7 +384,7 @@ impl Map {
 
   pub fn recalculate_boundaries_at(&mut self, pos: Vector2<u32>) {
     for other in self.iter_pixels_adjacent(pos) {
-      let b = UOrd::new(pos, other);
+      let b = UOrd::new([pos, other]);
       let rel = b.map(|pos| self.get_color_at(pos));
       if rel.is_distinct() {
         let is_special = self.has_connection(rel);
@@ -488,7 +488,7 @@ impl Map {
         // `through` does not get replaced here because it should
         // not be one of the colors that compose `rel`
         debug_assert_ne!(connection_data.through, Some(which));
-        new_connection_data_map.insert(rel.replace(which, color), connection_data.clone());
+        new_connection_data_map.insert(rel.replace(&which, &color), connection_data.clone());
       };
 
       self.base.connection_data_map = Arc::new(new_connection_data_map);
@@ -583,7 +583,7 @@ impl Map {
     if let (Some(start), Some(stop)) = (connection_data.start, connection_data.stop) {
       ([start[0] as f64, start[1] as f64], [stop[0] as f64, stop[1] as f64])
     } else {
-      let (start, stop) = rel.into_tuple();
+      let [start, stop] = rel.into_array();
       let start = self.get_province(start).center_of_mass();
       let stop = self.get_province(stop).center_of_mass();
       (start, stop)
@@ -1000,7 +1000,7 @@ impl ConnectionData {
 
   pub fn to_adjacency<F>(&self, rel: UOrd<u32>, through: F) -> Adjacency
   where F: Fn(Color) -> u32 {
-    let (from_id, to_id) = rel.into_tuple();
+    let [from_id, to_id] = rel.into_array();
     Adjacency {
       from_id,
       to_id,
@@ -1068,7 +1068,7 @@ fn random_color<R: Rng>(rng: &mut R, kind: ProvinceKind) -> Color {
     ProvinceKind::Unknown => return [rng.r#gen::<u8>(); 3],
     ProvinceKind::Land => rng.gen_range(0.5..1.0),
     ProvinceKind::Lake => rng.gen_range(0.2..0.5),
-    ProvinceKind::Sea  => rng.gen_range(0.04..0.2)
+    ProvinceKind::Sea => rng.gen_range(0.04..0.2)
   };
 
   let saturation = (lightness - 0.5).abs() + 0.5;
@@ -1112,14 +1112,14 @@ impl<T: ColorKeyable> ColorKeyable for &T {
 }
 
 pub fn boundary_to_line(b: UOrd<Vector2<u32>>) -> UOrd<Vector2<u32>> {
-  match b.into_tuple() {
-    ([xa, ya], [xb, yb]) if xa == xb => {
+  match b.into_array() {
+    [[xa, ya], [xb, yb]] if xa == xb => {
       let y = ya.max(yb);
-      UOrd::new([xa, y], [xa + 1, y])
+      UOrd::new([[xa, y], [xa + 1, y]])
     },
-    ([xa, ya], [xb, yb]) if ya == yb => {
+    [[xa, ya], [xb, yb]] if ya == yb => {
       let x = xa.max(xb);
-      UOrd::new([x, ya], [x, ya + 1])
+      UOrd::new([[x, ya], [x, ya + 1]])
     },
     _ => panic!("boundary must be between two pixels, one unit apart")
   }
@@ -1127,7 +1127,7 @@ pub fn boundary_to_line(b: UOrd<Vector2<u32>>) -> UOrd<Vector2<u32>> {
 
 /// Takes the average of the colors of the boundary, and then inverts that
 pub fn boundary_color(map: &Map, b: UOrd<Vector2<u32>>) -> Color {
-  let (b1, b2) = b.into_tuple_unordered();
+  let [b1, b2] = b.into_array();
   let b1 = map.get_color_at(b1);
   let b2 = map.get_color_at(b2);
 

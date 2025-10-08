@@ -4,13 +4,13 @@ use graphics::rectangle::Rectangle;
 use graphics::ellipse::Ellipse;
 use graphics::types::Color as DrawColor;
 use opengl_graphics::GlGraphics;
+use uord::UOrd2 as UOrd;
 use vecmath::Vector2;
 
 use crate::app::colors;
 use crate::app::canvas::CameraCombo;
 use super::{Bundle, Color, Map, Extents, boundary_to_line};
 use crate::util::{stringify_color, XYIter};
-use crate::util::uord::UOrd;
 
 use std::collections::hash_map::Entry;
 use std::fmt;
@@ -53,9 +53,8 @@ impl Problem {
         if camera_combo.camera.scale_factor() > 1.0 {
           // When the zoom is < 100%, draw each border individually
           for &boundary in borders.iter() {
-            let (b1, b2) = boundary_to_line(boundary)
-              .map(vec2_u32_to_f64)
-              .into_tuple_unordered();
+            let [b1, b2] = boundary_to_line(boundary)
+              .into_array().map(vec2_u32_to_f64);
             draw_line(b1, b2, ctx, camera_combo, colors::WARNING, gl);
           };
         } else {
@@ -96,7 +95,7 @@ impl fmt::Display for Problem {
         write!(f, "Lone pixel at {:?}", pos)
       },
       Problem::FewSharedBorders(boundary, ref borders) => {
-        let (a, b) = boundary.map(|which| stringify_color(which)).into_tuple();
+        let [a, b] = boundary.map(|which| stringify_color(which)).into_array();
         write!(f, "Only {} shared borders between provinces {} and {}", borders.len(), a, b)
       },
     }
@@ -167,18 +166,18 @@ pub fn analyze(bundle: &Bundle) -> Vec<Problem> {
         let other = [pos[0] + 1, pos[1]];
         let a = bundle.map.get_color_at(pos);
         let b = bundle.map.get_color_at(other);
-        let borders = borders.entry(UOrd::new(a, b))
+        let borders = borders.entry(UOrd::new([a, b]))
           .or_insert_with(Vec::new);
-        borders.push(UOrd::new(pos, other));
+        borders.push(UOrd::new([pos, other]));
       };
 
       if pos[1] + 1 < height {
         let other = [pos[0], pos[1] + 1];
         let a = bundle.map.get_color_at(pos);
         let b = bundle.map.get_color_at(other);
-        let borders = borders.entry(UOrd::new(a, b))
+        let borders = borders.entry(UOrd::new([a, b]))
           .or_insert_with(Vec::new);
-        borders.push(UOrd::new(pos, other));
+        borders.push(UOrd::new([pos, other]));
       };
     };
   };

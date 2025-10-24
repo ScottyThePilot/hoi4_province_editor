@@ -425,78 +425,82 @@ pub struct InterfaceDrawContext {
   pub enabled_options: [bool; 3]
 }
 
+use rfd::{FileDialog, MessageDialog, MessageDialogResult, MessageButtons, MessageLevel};
+
 fn file_dialog_save_bmp(filename: &str) -> Option<PathBuf> {
-  use native_dialog::FileDialog;
   let root = env::current_dir()
     .unwrap_or_else(|_| PathBuf::from("./"));
   FileDialog::new()
-    .set_location(&root)
-    .set_filename(&format!("{}.bmp", filename))
+    .set_directory(&root)
+    .set_file_name(format!("{}.bmp", filename))
     .add_filter("24-bit Bitmap", &["bmp"])
-    .show_save_single_file()
-    .expect("error displaying file dialog")
+    .save_file()
 }
 
 fn file_dialog_save(archive: bool) -> Option<Location> {
-  use native_dialog::FileDialog;
   let root = env::current_dir()
     .unwrap_or_else(|_| PathBuf::from("./"));
   if archive {
     FileDialog::new()
-      .set_location(&root)
-      .set_filename("map.zip")
+      .set_directory(&root)
+      .set_file_name("map.zip")
       .add_filter("ZIP Archive", &["zip"])
-      .show_save_single_file()
-      .expect("error displaying file dialog")
+      .save_file()
       .map(Location::ZipArchive)
   } else {
     FileDialog::new()
-      .set_location(&root)
-      .show_open_single_dir()
-      .expect("error displaying file dialog")
+      .set_directory(&root)
+      .pick_folder()
       .map(Location::Directory)
   }
 }
 
 fn file_dialog_open(archive: bool) -> Option<Location> {
-  use native_dialog::FileDialog;
   let root = env::current_dir()
     .unwrap_or_else(|_| PathBuf::from("./"));
   if archive {
     FileDialog::new()
-      .set_location(&root)
-      .set_filename("map.zip")
+      .set_directory(&root)
+      .set_file_name("map.zip")
       .add_filter("ZIP Archive", &["zip"])
-      .show_open_single_file()
-      .expect("error displaying file dialog")
+      .pick_file()
       .map(Location::ZipArchive)
   } else {
     FileDialog::new()
-      .set_location(&root)
-      .show_open_single_dir()
-      .expect("error displaying file dialog")
+      .set_directory(&root)
+      .pick_folder()
       .map(Location::Directory)
   }
 }
 
 fn msg_dialog_unsaved_changes_exit() -> bool {
-  use native_dialog::{MessageDialog, MessageType};
-  MessageDialog::new()
+  let result = MessageDialog::new()
     .set_title(crate::APPNAME)
-    .set_text("You have unsaved changes, would you like to save them before exiting?")
-    .set_type(MessageType::Warning)
-    .show_confirm()
-    .expect("error displaying file dialog")
+    .set_description("You have unsaved changes, would you like to save them before exiting?")
+    .set_level(MessageLevel::Warning)
+    .set_buttons(MessageButtons::YesNo)
+    .show();
+
+  match result {
+    MessageDialogResult::Yes => true,
+    MessageDialogResult::No => false,
+    _ => unreachable!()
+  }
 }
 
 fn msg_dialog_unsaved_changes() -> bool {
-  use native_dialog::{MessageDialog, MessageType};
-  MessageDialog::new()
+  let result = MessageDialog::new()
     .set_title(crate::APPNAME)
-    .set_text("You have unsaved changes, would you like to save them?")
-    .set_type(MessageType::Warning)
-    .show_confirm()
-    .expect("error displaying file dialog")
+    .set_description("You have unsaved changes, would you like to save them?")
+    .set_level(MessageLevel::Warning)
+    .set_buttons(MessageButtons::YesNo)
+    .show();
+
+  match result {
+    MessageDialogResult::Yes => true,
+    MessageDialogResult::No => false,
+    _ => unreachable!()
+  }
 }
 
 pub fn reveal_in_file_browser(path: impl AsRef<Path>) -> Result<(), Error> {

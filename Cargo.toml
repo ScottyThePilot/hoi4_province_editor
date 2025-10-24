@@ -1,6 +1,6 @@
 [package]
 name = "hoi4_province_editor"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["ScottyThePilot <scotty.codes@gmail.com>"]
 edition = "2024"
 description = "Map editor application for Hearts of Iron IV"
@@ -20,7 +20,6 @@ geo = { version = "0.20" }
 glutin = { version = "0.26" }
 image = { version = "~0.24.9", features = ["bmp", "png", "rayon"], default-features = false }
 itertools = { version = "0.10" }
-native-dialog = { version = "0.6" }
 once_cell = { version = "1.21" }
 piston = { version = "0.53" }
 piston2d-graphics = { version = "0.42", features = ["glyph_cache_rusttype"] }
@@ -28,13 +27,14 @@ piston2d-opengl_graphics = { version = "0.81" }
 pistoncore-glutin_window = { version = "0.70" }
 rand = { version = "0.8", features = ["small_rng"] }
 rayon = { version = "1.11" }
+rfd = { version = "0.15.4" }
 rusttype = { version = "0.9" }
 serde = { version = "1.0", features = ["derive"] }
 termcolor = { version = "1.4" }
 thiserror = { version = "1.0" }
 toml = { version = "0.5" }
-uord = { git = "https://github.com/ScottyThePilot/uord" }
 unicase = { git = "https://github.com/ScottyThePilot/misc-crates" }
+uord = { git = "https://github.com/ScottyThePilot/uord" }
 vecmath = { version = "1.0" }
 zip = { version = "0.6" }
 

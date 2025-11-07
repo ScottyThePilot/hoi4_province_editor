@@ -192,7 +192,12 @@ impl ToString for IdChange {
 
 type MapData = (Vec<Definition>, Vec<Adjacency>, Option<Vec<IdChange>>);
 
-pub fn save_bundle(location: &Location, bundle: &Bundle) -> Result<(), Error> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveOperation {
+  pub had_id_changes: bool
+}
+
+pub fn save_bundle(location: &Location, bundle: &Bundle) -> Result<SaveOperation, Error> {
   let (definition_table, adjacencies_table, id_changes) = deconstruct_map_data(bundle)?;
   location.clone().manipulate_files(|files| {
     write_rgb_bmp_image(files.create_file("provinces.bmp")?, &bundle.map.base.color_buffer)?;
@@ -202,14 +207,15 @@ pub fn save_bundle(location: &Location, bundle: &Bundle) -> Result<(), Error> {
       write_adjacencies_table(files.create_file("adjacencies.csv")?, adjacencies_table)?;
     };
 
+    let had_id_changes = id_changes.is_some();
     if let Some(id_changes) = id_changes {
       write_id_changes(files.create_file("id_changes.txt")?, id_changes)?;
     };
 
-    Ok(())
-  })?;
-
-  Ok(())
+    Ok(SaveOperation {
+      had_id_changes
+    })
+  })
 }
 
 fn deconstruct_map_data(bundle: &Bundle) -> Result<MapData, Error> {

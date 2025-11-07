@@ -384,8 +384,13 @@ impl App {
       let canvas = self.canvas.as_mut()
         .ok_or_else(|| Error::from("no canvas loaded"))?;
       let location = location.into_location()?;
-      let success_message = format!("Saved map to {}", location);
-      canvas.save(&location)?;
+      let mut success_message = format!("Saved map to {}", location);
+      let save_operation = canvas.save(&location)?;
+      if save_operation.had_id_changes {
+        success_message.push_str("\nThe most recent save included modified province IDs, see 'id_changes.txt' for more info");
+        success_message.push_str("\nIf you do not need province IDs to be preserved, you may disable it in the config")
+      };
+
       Ok(success_message)
     };
 

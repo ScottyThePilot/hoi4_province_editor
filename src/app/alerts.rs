@@ -43,7 +43,8 @@ impl Alerts {
   fn len(&self) -> usize {
     self.messages.iter()
       .filter(|m| !m.is_dead(self.now))
-      .count()
+      .map(|m| m.len())
+      .sum::<usize>()
   }
 
   pub fn tick(&mut self, dt: f32) {
@@ -100,16 +101,14 @@ impl Alerts {
   }
 
   fn iter_all(&self) -> impl Iterator<Item = (&str, DrawColor)> {
-    self.messages.iter()
-      .rev()
-      .map(|m| (m.text.as_str(), m.get_color()))
+    self.messages.iter().rev()
+      .flat_map(move |m| m.iter_with_color())
   }
 
   fn iter(&self) -> impl Iterator<Item = (&str, DrawColor)> {
-    self.messages.iter()
-      .rev()
+    self.messages.iter().rev()
       .filter(move |m| !m.is_dead(self.now))
-      .map(move |m| (m.text.as_str(), m.get_color_alpha(self.now)))
+      .flat_map(move |m| m.iter_with_color_alpha(self.now))
   }
 }
 
@@ -129,6 +128,10 @@ impl AlertMessage {
     now >= self.expiry
   }
 
+  fn len(&self) -> usize {
+    self.text.lines().count()
+  }
+
   fn get_color(&self) -> DrawColor {
     self.color
   }
@@ -137,6 +140,16 @@ impl AlertMessage {
     let mut color = self.color;
     color[3] = (self.expiry - now).min(1.0).max(0.0);
     color
+  }
+
+  fn iter_with_color(&self) -> impl Iterator<Item = (&str, DrawColor)> {
+    self.text.lines().rev()
+      .map(move |text| (text, self.get_color()))
+  }
+
+  fn iter_with_color_alpha(&self, now: f32) -> impl Iterator<Item = (&str, DrawColor)> {
+    self.text.lines().rev()
+      .map(move |text| (text, self.get_color_alpha(now)))
   }
 }
 

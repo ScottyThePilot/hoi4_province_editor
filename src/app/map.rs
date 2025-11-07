@@ -19,7 +19,7 @@ use crate::app::colors;
 use crate::app::format::*;
 use crate::error::Error;
 
-pub use self::bridge::{write_rgb_bmp_image, read_rgb_bmp_image};
+pub use self::bridge::{write_rgb_bmp_image, read_rgb_bmp_image, SaveOperation};
 pub use self::history::History;
 pub use self::problems::Problem;
 
@@ -42,7 +42,7 @@ impl Bundle {
     self::bridge::load_bundle(location, config)
   }
 
-  pub fn save(&self, location: &Location) -> Result<(), Error> {
+  pub fn save(&self, location: &Location) -> Result<SaveOperation, Error> {
     self::bridge::save_bundle(location, self)
   }
 

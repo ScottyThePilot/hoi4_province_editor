@@ -73,16 +73,16 @@ impl Canvas {
     })
   }
 
-  pub fn save(&mut self, location: &Location) -> Result<(), Error> {
+  pub fn save(&mut self, location: &Location) -> Result<SaveOperation, Error> {
     if self.bundle.config.generate_coastal_on_save {
       self.history.calculate_coastal_provinces(&mut self.bundle);
     };
 
-    self.bundle.save(location)?;
+    let save_operation = self.bundle.save(location)?;
     self.location = location.clone();
     self.modified = false;
 
-    Ok(())
+    Ok(save_operation)
   }
 
   pub fn location(&self) -> &Location {

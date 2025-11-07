@@ -3,7 +3,7 @@ max-undo-states = 24
 
 # Whether the application should attempt to preserve the IDs and colors of the original map
 # so as to not break states, strategic regions, etc.
-preserve-ids = false
+preserve-ids = true
 
 # Whether undo/redo should change to the relevant view mode when used
 change-view-mode-on-undo = true

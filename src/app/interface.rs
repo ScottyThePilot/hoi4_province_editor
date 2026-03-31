@@ -19,7 +19,11 @@ use std::fmt;
 pub const PADDING: Vector2<f64> = [6.0, 4.0];
 const TOOLTIP_OFFSET_X: f64 = 8.0;
 const TOOLTIP_MIN_WIDTH: f64 = 180.0;
-const TOOLTIP_MAX_WIDTH: f64 = 280.0;
+
+#[inline]
+fn snap_pos([x, y]: Vector2<f64>) -> Vector2<f64> {
+  [x.round(), y.round()]
+}
 
 const PALETTE_BUTTON: Palette = Palette {
   foreground: colors::WHITE,
@@ -543,10 +547,10 @@ fn draw_tooltip(
 ) {
   let v_metrics = font::get_v_metrics();
   let text_width = font::get_width_metric_str(text).round();
-  let plate_width = text_width.max(TOOLTIP_MIN_WIDTH).min(TOOLTIP_MAX_WIDTH) + PADDING[0] * 2.0;
+  let plate_width = text_width.max(TOOLTIP_MIN_WIDTH) + PADDING[0] * 2.0;
   let plate_height = (v_metrics.ascent - v_metrics.descent + PADDING[1] * 2.0).round();
-  let plate_pos = [anchor[0] + TOOLTIP_OFFSET_X, anchor[1] - plate_height / 2.0];
-  let text_pos = [plate_pos[0] + PADDING[0], plate_pos[1] + PADDING[1] + v_metrics.ascent];
+  let plate_pos = snap_pos([anchor[0] + TOOLTIP_OFFSET_X, anchor[1] - plate_height / 2.0]);
+  let text_pos = snap_pos([plate_pos[0] + PADDING[0], plate_pos[1] + PADDING[1] + v_metrics.ascent]);
 
   graphics::rectangle(colors::OVERLAY_T, [
     plate_pos[0], plate_pos[1],

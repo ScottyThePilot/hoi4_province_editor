@@ -4,13 +4,41 @@ use defy::Contextualize;
 use once_cell::sync::Lazy;
 use rusttype::{Font, Scale};
 
-use std::process::Command;
 use std::env;
+use std::process::Command;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::error::Error;
 
 pub const FONT_SIZE: u32 = 11;
-const FONT_SCALE: Scale = Scale { x: 15.0, y: 15.0 };
+const POINTS_TO_PIXELS: f32 = 4.0 / 3.0;
+static DPI_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+
+#[inline]
+pub fn font_scale() -> Scale {
+  Scale {
+    x: logical_font_pixels(),
+    y: logical_font_pixels()
+  }
+}
+
+#[inline]
+pub fn logical_font_pixels() -> f32 {
+  FONT_SIZE as f32 * POINTS_TO_PIXELS
+}
+
+#[inline]
+pub fn dpi_scale() -> f32 {
+  f32::from_bits(DPI_SCALE_BITS.load(Ordering::Relaxed))
+}
+
+pub fn set_dpi_scale(scale: f64) {
+  DPI_SCALE_BITS.store((scale as f32).to_bits(), Ordering::Relaxed);
+}
+
+pub fn render_font_size() -> u32 {
+  ((FONT_SIZE as f32) * dpi_scale()).round().max(1.0) as u32
+}
 
 pub fn get_font() -> Font<'static> {
   get_font_ref().clone()
@@ -29,7 +57,7 @@ fn get_font_ref() -> &'static Font<'static> {
 pub fn get_width_metric(ch: char) -> f64 {
   get_font_ref()
     .glyph(ch)
-    .scaled(FONT_SCALE)
+    .scaled(font_scale())
     .h_metrics()
     .advance_width
     as f64
@@ -40,7 +68,7 @@ pub fn get_width_metric_str(s: &str) -> f64 {
     .glyphs_for(s.chars())
     .map(|glyph| {
       glyph
-        .scaled(FONT_SCALE)
+        .scaled(font_scale())
         .h_metrics()
         .advance_width
     })
@@ -49,12 +77,12 @@ pub fn get_width_metric_str(s: &str) -> f64 {
 }
 
 pub fn get_height_metric() -> f64 {
-  let v_metrics = get_font_ref().v_metrics(FONT_SCALE);
+  let v_metrics = get_font_ref().v_metrics(font_scale());
   (v_metrics.ascent - v_metrics.descent) as f64
 }
 
 pub fn get_v_metrics() -> VMetrics {
-  let v_metrics = get_font_ref().v_metrics(FONT_SCALE);
+  let v_metrics = get_font_ref().v_metrics(font_scale());
   VMetrics {
     ascent: v_metrics.ascent as f64,
     descent: v_metrics.descent as f64

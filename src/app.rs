@@ -69,21 +69,24 @@ pub struct App {
   pub alerts: Alerts,
   pub glyph_cache: FontGlyphCache,
   pub interface: Option<Interface>,
-  pub painting: bool
+  pub painting: bool,
+  pub current_render_font_size: u32
 }
 
 impl EventHandler for App {
   fn new(_gl: &mut GlGraphics) -> Self {
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
     let mut glyph_cache = GlyphCache::from_font(font::get_font(), (), texture_settings);
-    glyph_cache.preload_printable_ascii(font::FONT_SIZE).expect("unable to preload font glyphs");
+    let render_font_size = font::render_font_size();
+    glyph_cache.preload_printable_ascii(render_font_size).expect("unable to preload font glyphs");
 
     App {
       canvas: None,
       alerts: Alerts::new(5.0),
       glyph_cache,
       interface: None,
-      painting: false
+      painting: false,
+      current_render_font_size: render_font_size
     }
   }
 
@@ -100,6 +103,7 @@ impl EventHandler for App {
 
   fn on_render(&mut self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     let Some(viewport) = ctx.viewport else { return };
+    self.update_font_dpi(viewport);
     let ictx = self.get_interface_draw_context();
     let interface = &*get_interface(&mut self.interface, viewport);
     graphics::clear(colors::NEUTRAL, gl);
@@ -198,6 +202,7 @@ impl EventHandler for App {
   }
 
   fn on_resize(&mut self, viewport: Viewport) {
+    self.update_font_dpi(viewport);
     self.interface = Some(Interface::new(viewport));
   }
 
@@ -219,6 +224,18 @@ impl EventHandler for App {
 }
 
 impl App {
+  fn update_font_dpi(&mut self, viewport: Viewport) {
+    let scale = viewport.draw_size[0] as f64 / viewport.window_size[0];
+    font::set_dpi_scale(scale);
+
+    let render_font_size = font::render_font_size();
+    if render_font_size != self.current_render_font_size {
+      self.glyph_cache.preload_printable_ascii(render_font_size)
+        .expect("unable to preload font glyphs");
+      self.current_render_font_size = render_font_size;
+    };
+  }
+
   fn get_interface_draw_context(&self) -> InterfaceDrawContext {
     match &self.canvas {
       Some(canvas) => InterfaceDrawContext {

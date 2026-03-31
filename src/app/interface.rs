@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use opengl_graphics::{Texture, TextureSettings, GlGraphics};
 use vecmath::Vector2;
 
-use crate::font::{self, FONT_SIZE};
+use crate::font;
 use super::canvas::ViewMode;
 use super::colors;
 use super::{FontGlyphCache, InterfaceDrawContext};
@@ -17,6 +17,11 @@ use std::sync::Arc;
 use std::fmt;
 
 pub const PADDING: Vector2<f64> = [6.0, 4.0];
+
+#[inline]
+fn snap_pos([x, y]: Vector2<f64>) -> Vector2<f64> {
+  [x.round(), y.round()]
+}
 
 const PALETTE_BUTTON: Palette = Palette {
   foreground: colors::WHITE,
@@ -52,7 +57,7 @@ pub struct Interface {
 
 impl Interface {
   pub fn new(viewport: Viewport) -> Self {
-    let [window_width, window_height] = viewport.draw_size;
+    let [window_width, window_height] = viewport.window_size;
 
     let mut pos_x = 0;
     let mut toolbar_height = 0;
@@ -313,7 +318,7 @@ enum ButtonBase {
 impl ButtonBase {
   fn new_fit_width(text: &'static str, pos: Vector2<u32>, colors: &'static Palette) -> Self {
     let v_metrics = font::get_v_metrics();
-    let text_pos = [pos[0] as f64 + PADDING[0], pos[1] as f64 + PADDING[1] + v_metrics.ascent];
+    let text_pos = snap_pos([pos[0] as f64 + PADDING[0], pos[1] as f64 + PADDING[1] + v_metrics.ascent]);
     let plate_pos = [pos[0] as f64, pos[1] as f64];
     let plate_width = (font::get_width_metric_str(text) + PADDING[0] * 2.0).round();
     let plate_height = (v_metrics.ascent - v_metrics.descent + PADDING[1] * 2.0).round();
@@ -327,9 +332,9 @@ impl ButtonBase {
   fn new_double_text(text: [&'static str; 2], pos: Vector2<u32>, width: u32, colors: &'static Palette) -> Self {
     let v_metrics = font::get_v_metrics();
     let text_y = pos[1] as f64 + PADDING[1] + v_metrics.ascent;
-    let text_pos_left = [pos[0] as f64 + PADDING[0], text_y];
+    let text_pos_left = snap_pos([pos[0] as f64 + PADDING[0], text_y]);
     let text_width_right = font::get_width_metric_str(text[1]);
-    let text_pos_right = [pos[0] as f64 + width as f64 - text_width_right - PADDING[0], text_y];
+    let text_pos_right = snap_pos([pos[0] as f64 + width as f64 - text_width_right - PADDING[0], text_y]);
     let plate_pos = [pos[0] as f64, pos[1] as f64];
     let plate_height = (v_metrics.ascent - v_metrics.descent + PADDING[1] * 2.0).round();
     ButtonBase::BoxDoubleText {
@@ -409,8 +414,11 @@ struct TextComponent {
 
 impl TextComponent {
   fn draw(&self, ctx: Context, colors: &Palette, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
-    let transform = ctx.transform.trans_pos(self.pos);
-    graphics::text(colors.foreground, FONT_SIZE, self.text, glyph_cache, transform, gl)
+    let dpi_scale = font::dpi_scale() as f64;
+    let transform = ctx.transform.trans_pos(self.pos).scale(1.0 / dpi_scale, 1.0 / dpi_scale);
+    graphics::Text::new_color(colors.foreground, font::render_font_size())
+      .round()
+      .draw(self.text, glyph_cache, &ctx.draw_state, transform, gl)
       .expect("unable to draw text");
   }
 }

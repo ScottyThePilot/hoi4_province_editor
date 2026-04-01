@@ -281,20 +281,27 @@ impl ButtonElement {
 
   fn tooltip(&self, view_mode: Option<ViewMode>) -> Option<&'static str> {
     use ButtonId::*;
+    let view_mode = view_mode?;
 
     match (self.id, view_mode) {
-      (SidebarToolPaintArea, Some(ViewMode::Color | ViewMode::Kind | ViewMode::Terrain | ViewMode::Continent)) =>
-        Some("Paint Area: drag to paint provinces under the brush."),
-      (SidebarToolPaintBucket, Some(ViewMode::Color)) =>
-        Some("Paint Bucket: fill the hovered province with the current brush."),
-      (SidebarToolLasso, Some(ViewMode::Color)) =>
-        Some("Lasso: draw a custom selection and then apply the current brush."),
-      (SidebarOptionProvinceIds, Some(_)) =>
-        Some("Toggle Province IDs: show or hide province numbers on the map."),
-      (SidebarOptionProvinceBoundaries, Some(_)) =>
-        Some("Toggle Province Boundaries: show or hide province borders."),
-      (SidebarOptionRiverOverlay, Some(_)) =>
-        Some("Toggle Rivers Overlay: show or hide river data on top of the map."),
+      (SidebarToolPaintArea, ViewMode::Color) =>
+        Some("Paint Area: Drag to paint provinces under the brush"),
+      (SidebarToolPaintArea, ViewMode::Kind) =>
+        Some("Paint Area: Drag to assign province types"),
+      (SidebarToolPaintArea, ViewMode::Terrain) =>
+        Some("Paint Area: Drag to assign province terrain types"),
+      (SidebarToolPaintArea, ViewMode::Continent) =>
+        Some("Paint Area: Drag to assign provinces to continents"),
+      (SidebarToolPaintBucket, ViewMode::Color) =>
+        Some("Paint Bucket: Fill the hovered province with the current brush"),
+      (SidebarToolLasso, ViewMode::Color) =>
+        Some("Lasso: Draw a custom selection and then apply the current brush"),
+      (SidebarOptionProvinceIds, ..) =>
+        Some("Toggle Province IDs: Show or hide province IDs on the map"),
+      (SidebarOptionProvinceBoundaries, ..) =>
+        Some("Toggle Province Boundaries: Show or hide province borders"),
+      (SidebarOptionRiverOverlay, ..) =>
+        Some("Toggle Rivers Overlay: Show or hide the contents of rivers.bmp"),
       _ => None
     }
   }

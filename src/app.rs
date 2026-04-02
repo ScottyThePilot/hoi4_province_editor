@@ -225,14 +225,13 @@ impl EventHandler for App {
 
 impl App {
   fn update_font_dpi(&mut self, viewport: Viewport) {
-    let scale = viewport.draw_size[0] as f64 / viewport.window_size[0];
-    font::set_dpi_scale(scale);
+    font::set_dpi_scale(viewport.draw_size[0] as f64 / viewport.window_size[0]);
 
-    let render_font_size = font::render_font_size();
-    if render_font_size != self.current_render_font_size {
-      self.glyph_cache.preload_printable_ascii(render_font_size)
+    let new_render_font_size = font::render_font_size();
+    if new_render_font_size != self.current_render_font_size {
+      self.glyph_cache.preload_printable_ascii(new_render_font_size)
         .expect("unable to preload font glyphs");
-      self.current_render_font_size = render_font_size;
+      self.current_render_font_size = new_render_font_size;
     };
   }
 

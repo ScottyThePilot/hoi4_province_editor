@@ -11,12 +11,14 @@ use vecmath::Vector2;
 use crate::font;
 use super::canvas::ViewMode;
 use super::colors;
-use super::{FontGlyphCache, InterfaceDrawContext};
+use super::{FontGlyphCache, InterfaceDrawContext, draw_text};
 
 use std::sync::Arc;
 use std::fmt;
 
 pub const PADDING: Vector2<f64> = [6.0, 4.0];
+const TOOLTIP_OFFSET_X: f64 = 8.0;
+const TOOLTIP_MIN_WIDTH: f64 = 180.0;
 
 #[inline]
 fn snap_pos([x, y]: Vector2<f64>) -> Vector2<f64> {
@@ -208,6 +210,7 @@ impl Interface {
     glyph_cache: &mut FontGlyphCache,
     gl: &mut GlGraphics
   ) {
+    let mut sidebar_tooltip = None;
     self.sidebar_plate.draw(ctx, false, false, gl);
 
     for (i, sidebar_button) in self.sidebar_tool_buttons.iter().enumerate() {
@@ -222,15 +225,27 @@ impl Interface {
       };
 
       let hover = sidebar_button.base.test_maybe(pos);
+      if hover {
+        sidebar_tooltip = sidebar_button.tooltip(ictx.view_mode)
+          .map(|text| (sidebar_button.base.tooltip_anchor(), text));
+      }
       let active = Some(i) == selected_tool;
       sidebar_button.base.draw(ctx, hover, active, glyph_cache, gl);
     };
 
     for (i, sidebar_button) in self.sidebar_option_buttons.iter().enumerate() {
       let hover = sidebar_button.base.test_maybe(pos);
+      if hover {
+        sidebar_tooltip = sidebar_button.tooltip(ictx.view_mode)
+          .map(|text| (sidebar_button.base.tooltip_anchor(), text));
+      }
       let active = ictx.enabled_options[i];
       sidebar_button.base.draw(ctx, hover, active, glyph_cache, gl);
     };
+
+    if let Some((anchor, text)) = sidebar_tooltip {
+      draw_tooltip(ctx, text, anchor, glyph_cache, gl);
+    }
 
     self.toolbar_plate.draw(ctx, false, false, gl);
 
@@ -262,6 +277,33 @@ impl ButtonElement {
 
   fn draw(&self, ctx: Context, pos: Option<Vector2<f64>>, active: bool, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
     self.base.draw(ctx, self.base.test_maybe(pos), active, glyph_cache, gl);
+  }
+
+  fn tooltip(&self, view_mode: Option<ViewMode>) -> Option<&'static str> {
+    use ButtonId::*;
+    let view_mode = view_mode?;
+
+    match (self.id, view_mode) {
+      (SidebarToolPaintArea, ViewMode::Color) =>
+        Some("Paint Area: Drag to paint provinces under the brush"),
+      (SidebarToolPaintArea, ViewMode::Kind) =>
+        Some("Paint Area: Drag to assign province types"),
+      (SidebarToolPaintArea, ViewMode::Terrain) =>
+        Some("Paint Area: Drag to assign province terrain types"),
+      (SidebarToolPaintArea, ViewMode::Continent) =>
+        Some("Paint Area: Drag to assign provinces to continents"),
+      (SidebarToolPaintBucket, ViewMode::Color) =>
+        Some("Paint Bucket: Fill the hovered province with the current brush"),
+      (SidebarToolLasso, ViewMode::Color) =>
+        Some("Lasso: Draw a custom selection and then apply the current brush"),
+      (SidebarOptionProvinceIds, ..) =>
+        Some("Toggle Province IDs: Show or hide province IDs on the map"),
+      (SidebarOptionProvinceBoundaries, ..) =>
+        Some("Toggle Province Boundaries: Show or hide province borders"),
+      (SidebarOptionRiverOverlay, ..) =>
+        Some("Toggle Rivers Overlay: Show or hide the contents of rivers.bmp"),
+      _ => None
+    }
   }
 }
 
@@ -404,6 +446,11 @@ impl ButtonBase {
       ButtonBase::BoxTexture { plate, .. } => plate
     }
   }
+
+  fn tooltip_anchor(&self) -> Vector2<f64> {
+    let plate = self.plate();
+    [plate.pos[0] + plate.size[0], plate.pos[1] + plate.size[1] / 2.0]
+  }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -414,12 +461,7 @@ struct TextComponent {
 
 impl TextComponent {
   fn draw(&self, ctx: Context, colors: &Palette, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
-    let dpi_scale = font::dpi_scale() as f64;
-    let transform = ctx.transform.trans_pos(self.pos).scale(1.0 / dpi_scale, 1.0 / dpi_scale);
-    graphics::Text::new_color(colors.foreground, font::render_font_size())
-      .round()
-      .draw(self.text, glyph_cache, &ctx.draw_state, transform, gl)
-      .expect("unable to draw text");
+    draw_text(ctx, colors.foreground, self.pos, self.text, glyph_cache, gl);
   }
 }
 
@@ -499,6 +541,28 @@ struct Palette {
   background_active: DrawColor,
   background_hover: DrawColor,
   background_hover_active: DrawColor
+}
+
+fn draw_tooltip(
+  ctx: Context,
+  text: &'static str,
+  anchor: Vector2<f64>,
+  glyph_cache: &mut FontGlyphCache,
+  gl: &mut GlGraphics
+) {
+  let v_metrics = font::get_v_metrics();
+  let text_width = font::get_width_metric_str(text).round();
+  let plate_width = text_width.max(TOOLTIP_MIN_WIDTH) + PADDING[0] * 2.0;
+  let plate_height = (v_metrics.ascent - v_metrics.descent + PADDING[1] * 2.0).round();
+  let plate_pos = snap_pos([anchor[0] + TOOLTIP_OFFSET_X, anchor[1] - plate_height / 2.0]);
+  let text_pos = snap_pos([plate_pos[0] + PADDING[0], plate_pos[1] + PADDING[1] + v_metrics.ascent]);
+
+  graphics::rectangle(colors::OVERLAY_T, [
+    plate_pos[0], plate_pos[1],
+    plate_width, plate_height
+  ], ctx.transform, gl);
+
+  draw_text(ctx, colors::WHITE, text_pos, text, glyph_cache, gl);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

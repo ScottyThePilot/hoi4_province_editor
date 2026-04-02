@@ -9,13 +9,13 @@ use opengl_graphics::{Filter, GlGraphics, Texture, TextureSettings};
 use uord::UOrd2 as UOrd;
 use vecmath::{Matrix2x3, Vector2};
 
-use super::{colors, FontGlyphCache};
+use super::{colors, FontGlyphCache, draw_text};
 use super::alerts::Alerts;
 use super::map::*;
 use super::interface::Interface;
 use super::format::DefinitionKind;
 use crate::config::Config;
-use crate::font::{self, FONT_SIZE};
+use crate::font;
 use crate::util::stringify_color;
 use crate::util::files::Location;
 use crate::error::Error;
@@ -135,9 +135,7 @@ impl Canvas {
 
     let camera_info = self.camera_info(interface, cursor_pos);
     let pos = [PADDING[0] + interface.get_sidebar_width() as f64, interface.get_window_size()[1] - PADDING[1] * 1.25];
-    let transform = ctx.transform.trans_pos(pos);
-    graphics::text(colors::WHITE, FONT_SIZE, &camera_info, glyph_cache, transform, gl)
-      .expect("unable to draw text");
+    draw_text(ctx, colors::WHITE, pos, &camera_info, glyph_cache, gl);
   }
 
   fn draw_ids(&self, ctx: Context, interface: &Interface, glyph_cache: &mut FontGlyphCache, gl: &mut GlGraphics) {
@@ -165,9 +163,8 @@ impl Canvas {
           font::get_width_metric_str(&preserved_id) / -2.0,
           font::get_v_metrics().ascent - font::get_height_metric() / 2.0
         ];
-        let transform = ctx.transform.trans_pos(center_of_mass).trans_pos(offset);
-        graphics::text(color, FONT_SIZE, &preserved_id, glyph_cache, transform, gl)
-          .expect("unable to draw text");
+        let pos = vecmath::vec2_add(center_of_mass, offset);
+        draw_text(ctx, color, pos, &preserved_id, glyph_cache, gl);
       };
     };
   }

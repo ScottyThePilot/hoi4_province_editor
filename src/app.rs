@@ -6,9 +6,11 @@ pub mod map;
 
 use defy::Contextualize;
 use glutin::window::CursorIcon;
+use graphics::Transformed;
 use graphics::Viewport;
 use graphics::context::Context;
 use graphics::glyph_cache::rusttype::GlyphCache;
+use graphics::types::Color as DrawColor;
 use opengl_graphics::{GlGraphics, Filter, Texture, TextureSettings};
 use piston::input::{Key, MouseButton};
 use vecmath::Vector2;
@@ -64,13 +66,30 @@ pub mod colors {
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
 
+fn draw_text(
+  ctx: Context,
+  color: DrawColor,
+  pos: Vector2<f64>,
+  text: &str,
+  glyph_cache: &mut FontGlyphCache,
+  gl: &mut GlGraphics
+) {
+  let dpi_scale = font::dpi_scale() as f64;
+  let pos = [pos[0].round(), pos[1].round()];
+  let transform = ctx.transform.trans_pos(pos).scale(1.0 / dpi_scale, 1.0 / dpi_scale);
+  graphics::Text::new_color(color, font::render_font_size())
+    .round()
+    .draw(text, glyph_cache, &ctx.draw_state, transform, gl)
+    .expect("unable to draw text");
+}
+
 pub struct App {
   pub canvas: Option<Canvas>,
   pub alerts: Alerts,
   pub glyph_cache: FontGlyphCache,
   pub interface: Option<Interface>,
   pub painting: bool,
-  pub current_render_font_size: u32
+  current_render_font_size: u32
 }
 
 impl EventHandler for App {
@@ -202,7 +221,6 @@ impl EventHandler for App {
   }
 
   fn on_resize(&mut self, viewport: Viewport) {
-    self.update_font_dpi(viewport);
     self.interface = Some(Interface::new(viewport));
   }
 

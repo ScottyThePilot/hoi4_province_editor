@@ -6,9 +6,11 @@ pub mod map;
 
 use defy::Contextualize;
 use glutin::window::CursorIcon;
+use graphics::Transformed;
 use graphics::Viewport;
 use graphics::context::Context;
 use graphics::glyph_cache::rusttype::GlyphCache;
+use graphics::types::Color as DrawColor;
 use opengl_graphics::{GlGraphics, Filter, Texture, TextureSettings};
 use piston::input::{Key, MouseButton};
 use vecmath::Vector2;
@@ -64,26 +66,46 @@ pub mod colors {
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
 
+fn draw_text(
+  ctx: Context,
+  color: DrawColor,
+  pos: Vector2<f64>,
+  text: &str,
+  glyph_cache: &mut FontGlyphCache,
+  gl: &mut GlGraphics
+) {
+  let dpi_scale = font::dpi_scale() as f64;
+  let pos = [pos[0].round(), pos[1].round()];
+  let transform = ctx.transform.trans_pos(pos).scale(1.0 / dpi_scale, 1.0 / dpi_scale);
+  graphics::Text::new_color(color, font::render_font_size())
+    .round()
+    .draw(text, glyph_cache, &ctx.draw_state, transform, gl)
+    .expect("unable to draw text");
+}
+
 pub struct App {
   pub canvas: Option<Canvas>,
   pub alerts: Alerts,
   pub glyph_cache: FontGlyphCache,
   pub interface: Option<Interface>,
-  pub painting: bool
+  pub painting: bool,
+  current_render_font_size: u32
 }
 
 impl EventHandler for App {
   fn new(_gl: &mut GlGraphics) -> Self {
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
     let mut glyph_cache = GlyphCache::from_font(font::get_font(), (), texture_settings);
-    glyph_cache.preload_printable_ascii(font::FONT_SIZE).expect("unable to preload font glyphs");
+    let render_font_size = font::render_font_size();
+    glyph_cache.preload_printable_ascii(render_font_size).expect("unable to preload font glyphs");
 
     App {
       canvas: None,
       alerts: Alerts::new(5.0),
       glyph_cache,
       interface: None,
-      painting: false
+      painting: false,
+      current_render_font_size: render_font_size
     }
   }
 
@@ -100,6 +122,7 @@ impl EventHandler for App {
 
   fn on_render(&mut self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     let Some(viewport) = ctx.viewport else { return };
+    self.update_font_dpi(viewport);
     let ictx = self.get_interface_draw_context();
     let interface = &*get_interface(&mut self.interface, viewport);
     graphics::clear(colors::NEUTRAL, gl);
@@ -219,6 +242,17 @@ impl EventHandler for App {
 }
 
 impl App {
+  fn update_font_dpi(&mut self, viewport: Viewport) {
+    font::set_dpi_scale(viewport.draw_size[0] as f64 / viewport.window_size[0]);
+
+    let new_render_font_size = font::render_font_size();
+    if new_render_font_size != self.current_render_font_size {
+      self.glyph_cache.preload_printable_ascii(new_render_font_size)
+        .expect("unable to preload font glyphs");
+      self.current_render_font_size = new_render_font_size;
+    };
+  }
+
   fn get_interface_draw_context(&self) -> InterfaceDrawContext {
     match &self.canvas {
       Some(canvas) => InterfaceDrawContext {

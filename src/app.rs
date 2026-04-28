@@ -6,15 +6,18 @@ pub mod map;
 
 use defy::Contextualize;
 use glutin::window::CursorIcon;
+use graphics::Transformed;
 use graphics::Viewport;
 use graphics::context::Context;
 use graphics::glyph_cache::rusttype::GlyphCache;
+use graphics::types::Color as DrawColor;
 use opengl_graphics::{GlGraphics, Filter, Texture, TextureSettings};
 use piston::input::{Key, MouseButton};
 use vecmath::Vector2;
 
 use crate::error::Error;
 use crate::font;
+use crate::i18n;
 use crate::events::{EventHandler, KeyMods};
 use crate::util::files::{Location, IntoLocation};
 use self::alerts::Alerts;
@@ -64,26 +67,47 @@ pub mod colors {
 
 pub type FontGlyphCache = GlyphCache<'static, (), Texture>;
 
+fn draw_text(
+  ctx: Context,
+  color: DrawColor,
+  pos: Vector2<f64>,
+  text: &str,
+  glyph_cache: &mut FontGlyphCache,
+  gl: &mut GlGraphics
+) {
+  let dpi_scale = font::dpi_scale() as f64;
+  let pos = [pos[0].round(), pos[1].round()];
+  let transform = ctx.transform.trans_pos(pos).scale(1.0 / dpi_scale, 1.0 / dpi_scale);
+  graphics::Text::new_color(color, font::render_font_size())
+    .round()
+    .draw(text, glyph_cache, &ctx.draw_state, transform, gl)
+    .expect("unable to draw text");
+}
+
 pub struct App {
   pub canvas: Option<Canvas>,
   pub alerts: Alerts,
   pub glyph_cache: FontGlyphCache,
   pub interface: Option<Interface>,
-  pub painting: bool
+  pub painting: bool,
+  current_render_font_size: u32
 }
 
 impl EventHandler for App {
   fn new(_gl: &mut GlGraphics) -> Self {
+    i18n::set_lang(crate::config::Config::load_language());
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
     let mut glyph_cache = GlyphCache::from_font(font::get_font(), (), texture_settings);
-    glyph_cache.preload_printable_ascii(font::FONT_SIZE).expect("unable to preload font glyphs");
+    let render_font_size = font::render_font_size();
+    glyph_cache.preload_printable_ascii(render_font_size).expect("unable to preload font glyphs");
 
     App {
       canvas: None,
       alerts: Alerts::new(5.0),
       glyph_cache,
       interface: None,
-      painting: false
+      painting: false,
+      current_render_font_size: render_font_size
     }
   }
 
@@ -94,12 +118,13 @@ impl EventHandler for App {
       #[cfg(any(debug_assertions, feature = "debug-mode"))]
       self.raw_open_map_at("./test_map.zip");
       #[cfg(not(any(debug_assertions, feature = "debug-mode")))]
-      self.alerts.push(Ok("Drag a file, archive, or folder onto the application to load a map"));
+      self.alerts.push(Ok(i18n::text().drag_file_to_load));
     };
   }
 
   fn on_render(&mut self, ctx: Context, cursor_pos: Option<Vector2<f64>>, gl: &mut GlGraphics) {
     let Some(viewport) = ctx.viewport else { return };
+    self.update_font_dpi(viewport);
     let ictx = self.get_interface_draw_context();
     let interface = &*get_interface(&mut self.interface, viewport);
     graphics::clear(colors::NEUTRAL, gl);
@@ -219,6 +244,17 @@ impl EventHandler for App {
 }
 
 impl App {
+  fn update_font_dpi(&mut self, viewport: Viewport) {
+    font::set_dpi_scale(viewport.draw_size[0] as f64 / viewport.window_size[0]);
+
+    let new_render_font_size = font::render_font_size();
+    if new_render_font_size != self.current_render_font_size {
+      self.glyph_cache.preload_printable_ascii(new_render_font_size)
+        .expect("unable to preload font glyphs");
+      self.current_render_font_size = new_render_font_size;
+    };
+  }
+
   fn get_interface_draw_context(&self) -> InterfaceDrawContext {
     match &self.canvas {
       Some(canvas) => InterfaceDrawContext {
@@ -273,7 +309,7 @@ impl App {
       (Some(canvas), ToolbarViewToggleProvinceIds | SidebarOptionProvinceIds) => canvas.toggle_province_ids(),
       (Some(canvas), ToolbarViewToggleProvinceBoundaries | SidebarOptionProvinceBoundaries) => canvas.toggle_province_boundaries(),
       (Some(canvas), ToolbarViewToggleRiverOverlay | SidebarOptionRiverOverlay) => if canvas.toggle_river_overlay() {
-        self.alerts.push(Err("You must have a map with rivers.bmp to use this"));
+        self.alerts.push(Err(i18n::text().rivers_required));
       },
       (Some(canvas), ToolbarViewResetZoom) => canvas.camera.reset(),
       (_, ToolbarViewFontLicense) => self.handle_result_none(font::view_font_license()),
@@ -284,7 +320,7 @@ impl App {
       (Some(canvas), ToolbarDebugValidatePixelCounts) => canvas.validate_pixel_counts(&mut self.alerts),
       #[cfg(any(debug_assertions, feature = "debug-mode"))]
       (_, ToolbarDebugTriggerCrash) => panic!("debug crash"),
-      (None, _) => self.alerts.push(Err("You must have a map loaded to use this")),
+      (None, _) => self.alerts.push(Err(i18n::text().map_required)),
     };
   }
 
@@ -293,7 +329,7 @@ impl App {
     self.painting = true;
     if let Some(canvas) = &mut self.canvas {
       if canvas.view_mode() == ViewMode::Adjacencies && canvas.tool.adjacency_brush.is_none() {
-        self.alerts.push(Err("No Adjacency brush selected"));
+        self.alerts.push(Err(i18n::text().no_adjacency_brush_selected));
       } else {
         canvas.activate_tool(interface, pos, mods.shift);
       };
@@ -370,7 +406,7 @@ impl App {
   fn raw_open_map_at(&mut self, location: impl IntoLocation) {
     let result = crate::try_block!{
       let location = location.into_location()?;
-      let success_message = format!("Loaded map from {}", location);
+      let success_message = i18n::loaded_map_from(&location);
       let canvas = Canvas::load(location)?;
       self.canvas = Some(canvas);
       Ok(success_message)
@@ -384,11 +420,13 @@ impl App {
       let canvas = self.canvas.as_mut()
         .ok_or_else(|| Error::from("no canvas loaded"))?;
       let location = location.into_location()?;
-      let mut success_message = format!("Saved map to {}", location);
+      let mut success_message = i18n::saved_map_to(&location);
       let save_operation = canvas.save(&location)?;
       if save_operation.had_id_changes {
-        success_message.push_str("\nThe most recent save included modified province IDs, see 'id_changes.txt' for more info");
-        success_message.push_str("\nIf you do not need province IDs to be preserved, you may disable it in the config")
+        success_message.push('\n');
+        success_message.push_str(i18n::text().save_id_changes_line_1);
+        success_message.push('\n');
+        success_message.push_str(i18n::text().save_id_changes_line_2);
       };
 
       Ok(success_message)
@@ -399,14 +437,14 @@ impl App {
 
   fn handle_result_none(&mut self, result: Result<(), Error>) {
     if let Err(err) = result {
-      self.alerts.push(Err(format!("Error: {}", err)));
+      self.alerts.push(Err(i18n::error_message(err)));
     };
   }
 
   fn handle_result<T: fmt::Display>(&mut self, result: Result<T, Error>) {
     self.alerts.push(match result {
       Ok(text) => Ok(text.to_string()),
-      Err(err) => Err(format!("Error: {}", err))
+      Err(err) => Err(i18n::error_message(err))
     });
   }
 }
@@ -438,7 +476,7 @@ fn file_dialog_save_bmp(filename: &str) -> Option<PathBuf> {
   FileDialog::new()
     .set_directory(&root)
     .set_file_name(format!("{}.bmp", filename))
-    .add_filter("24-bit Bitmap", &["bmp"])
+    .add_filter(i18n::text().bmp_filter_name, &["bmp"])
     .save_file()
 }
 
@@ -449,7 +487,7 @@ fn file_dialog_save(archive: bool) -> Option<Location> {
     FileDialog::new()
       .set_directory(&root)
       .set_file_name("map.zip")
-      .add_filter("ZIP Archive", &["zip"])
+      .add_filter(i18n::text().zip_filter_name, &["zip"])
       .save_file()
       .map(Location::ZipArchive)
   } else {
@@ -467,7 +505,7 @@ fn file_dialog_open(archive: bool) -> Option<Location> {
     FileDialog::new()
       .set_directory(&root)
       .set_file_name("map.zip")
-      .add_filter("ZIP Archive", &["zip"])
+      .add_filter(i18n::text().zip_filter_name, &["zip"])
       .pick_file()
       .map(Location::ZipArchive)
   } else {
@@ -481,7 +519,7 @@ fn file_dialog_open(archive: bool) -> Option<Location> {
 fn msg_dialog_unsaved_changes_exit() -> bool {
   let result = MessageDialog::new()
     .set_title(crate::APPNAME)
-    .set_description("You have unsaved changes, would you like to save them before exiting?")
+    .set_description(i18n::text().unsaved_changes_exit)
     .set_level(MessageLevel::Warning)
     .set_buttons(MessageButtons::YesNo)
     .show();
@@ -496,7 +534,7 @@ fn msg_dialog_unsaved_changes_exit() -> bool {
 fn msg_dialog_unsaved_changes() -> bool {
   let result = MessageDialog::new()
     .set_title(crate::APPNAME)
-    .set_description("You have unsaved changes, would you like to save them?")
+    .set_description(i18n::text().unsaved_changes)
     .set_level(MessageLevel::Warning)
     .set_buttons(MessageButtons::YesNo)
     .show();
@@ -525,6 +563,6 @@ pub fn reveal_in_file_browser(path: impl AsRef<Path>) -> Result<(), Error> {
       .context("failed to execute command 'xdg-open'")?;
     Ok(())
   } else {
-    Err("unable to reveal in file browser".into())
+    Err(i18n::text().reveal_file_browser_unavailable.into())
   }
 }

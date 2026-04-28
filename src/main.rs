@@ -7,6 +7,7 @@ pub mod config;
 pub mod error;
 pub mod events;
 pub mod font;
+pub mod i18n;
 
 use glutin_window::GlutinWindow;
 use glutin::dpi::LogicalSize;
@@ -30,6 +31,7 @@ pub const APPNAME: &str = concat!("HOI4 Province Map Editor v", env!("CARGO_PKG_
 
 fn main() {
   install_handler();
+  enable_dpi_awareness();
 
   let root = root_dir().expect("unable to find root dir");
   env::set_current_dir(root).expect("unable to set root dir");
@@ -44,6 +46,21 @@ fn main() {
   let mut gl = GlGraphics::new(opengl);
   launch::<App>(&mut window, &mut gl);
 }
+
+#[cfg(target_os = "windows")]
+fn enable_dpi_awareness() {
+  use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    SetProcessDpiAwarenessContext,
+  };
+
+  unsafe {
+    let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn enable_dpi_awareness() {}
 
 fn root_dir() -> io::Result<PathBuf> {
   if let Some(manifest_dir) = env::var_os("CARGO_MANIFEST_DIR") {

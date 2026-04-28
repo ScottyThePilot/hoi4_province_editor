@@ -16,6 +16,7 @@ use super::interface::Interface;
 use super::format::DefinitionKind;
 use crate::config::Config;
 use crate::font;
+use crate::i18n;
 use crate::util::stringify_color;
 use crate::util::files::Location;
 use crate::error::Error;
@@ -305,9 +306,9 @@ impl Canvas {
     match Config::load() {
       Ok(config) => {
         self.bundle.config = config;
-        alerts.push(Ok("Reloaded config"));
+        alerts.push(Ok(i18n::text().reloaded_config));
       },
-      Err(err) => alerts.push(Err(format!("Error: {}", err)))
+      Err(err) => alerts.push(Err(i18n::error_message(err)))
     };
   }
 
@@ -315,11 +316,11 @@ impl Canvas {
     if let Some(image) = self.bundle.image_buffer_mapgen_land() {
       let path = path.as_ref();
       match export_image_buffer(path, image) {
-        Ok(()) => alerts.push(Ok(format!("Exported land map to {}", path.display()))),
-        Err(err) => alerts.push(Err(format!("Error: {}", err)))
+        Ok(()) => alerts.push(Ok(i18n::exported_land_map_to(path.display()))),
+        Err(err) => alerts.push(Err(i18n::error_message(err)))
       };
     } else {
-      alerts.push(Err("Error: province with unknown type present"));
+      alerts.push(Err(i18n::text().unknown_type_present));
     };
   }
 
@@ -330,8 +331,8 @@ impl Canvas {
       let path = path.as_ref();
       let image = self.bundle.image_buffer_mapgen_terrain().unwrap();
       match export_image_buffer(path, image) {
-        Ok(()) => alerts.push(Ok(format!("Exported terrain map to {}", path.display()))),
-        Err(err) => alerts.push(Err(format!("Error: {}", err)))
+        Ok(()) => alerts.push(Ok(i18n::exported_terrain_map_to(path.display()))),
+        Err(err) => alerts.push(Err(i18n::error_message(err)))
       };
     };
   }
@@ -374,10 +375,10 @@ impl Canvas {
   pub fn display_problems(&mut self, alerts: &mut Alerts) {
     self.problems = self.bundle.generate_problems();
     if self.problems.is_empty() {
-      alerts.push(Ok("No map problems detected"));
+      alerts.push(Ok(i18n::text().no_map_problems_detected));
     } else {
       for problem in self.problems.iter() {
-        alerts.push(Ok(format!("Problem: {}", problem)));
+        alerts.push(Ok(i18n::problem_message(problem)));
       };
     };
   }
@@ -413,32 +414,32 @@ impl Canvas {
           .unwrap_or(ProvinceKind::Land);
         let color = self.bundle.random_color_pure(kind);
         self.tool.color_brush = Some(color);
-        alerts.push(Ok(format!("Brush set to color {}", stringify_color(color))))
+        alerts.push(Ok(i18n::brush_set_to_color(&stringify_color(color))))
       },
       ViewMode::Kind => {
         let kind = self.tool.kind_brush;
         let kind = cycle_kinds(kind, backwards);
         self.tool.kind_brush = Some(kind);
-        alerts.push(Ok(format!("Brush set to type {}", kind.to_str().to_uppercase())));
+        alerts.push(Ok(i18n::brush_set_to_type(&kind.to_str().to_uppercase())));
       },
       ViewMode::Terrain => {
         let terrain = self.tool.terrain_brush.as_deref();
         let terrain = self.bundle.config.cycle_terrains(terrain, backwards);
-        alerts.push(Ok(format!("Brush set to terrain {}", terrain.to_uppercase())));
+        alerts.push(Ok(i18n::brush_set_to_terrain(&terrain.to_uppercase())));
         self.tool.terrain_brush = Some(terrain);
       },
       ViewMode::Continent => {
         let continent = self.tool.continent_brush;
         let continent = cycle_continents(continent, backwards);
         self.tool.continent_brush = Some(continent);
-        alerts.push(Ok(format!("Brush set to continent {}", continent)));
+        alerts.push(Ok(i18n::brush_set_to_continent(continent)));
       },
       ViewMode::Coastal => (),
       ViewMode::Adjacencies => {
         let adjacency_kind = self.tool.adjacency_brush;
         let adjacency_kind = cycle_connection(adjacency_kind, backwards);
         self.tool.adjacency_brush = Some(adjacency_kind);
-        alerts.push(Ok(format!("Brush set to adjacencies {}", adjacency_kind.to_str().to_uppercase())));
+        alerts.push(Ok(i18n::brush_set_to_adjacencies(&adjacency_kind.to_str().to_uppercase())));
       }
     };
   }
@@ -451,21 +452,21 @@ impl Canvas {
         ViewMode::Color => {
           self.tool_paint_end();
           self.tool.color_brush = Some(color);
-          alerts.push(Ok(format!("Picked color {}", stringify_color(color))));
+          alerts.push(Ok(i18n::picked_color(&stringify_color(color))));
         },
         ViewMode::Kind => if let Some(kind) = province_data.kind.to_definition_kind() {
           self.tool.kind_brush = Some(kind);
-          alerts.push(Ok(format!("Picked type {}", kind.to_str().to_uppercase())));
+          alerts.push(Ok(i18n::picked_type(&kind.to_str().to_uppercase())));
         },
         ViewMode::Terrain => if province_data.terrain != "unknown" {
           let terrain = province_data.terrain.as_str();
           self.tool.terrain_brush = Some(terrain.to_owned());
-          alerts.push(Ok(format!("Picked terrain {}", terrain.to_uppercase())));
+          alerts.push(Ok(i18n::picked_terrain(&terrain.to_uppercase())));
         },
         ViewMode::Continent => {
           let continent = province_data.continent;
           self.tool.continent_brush = Some(continent);
-          alerts.push(Ok(format!("Picked continent {}", continent)));
+          alerts.push(Ok(i18n::picked_continent(continent)));
         },
         ViewMode::Coastal => (),
         ViewMode::Adjacencies => ()
@@ -611,16 +612,16 @@ impl Canvas {
 
   pub fn validate_pixel_counts(&self, alerts: &mut Alerts) {
     if self.bundle.map.validate_pixel_counts() {
-      alerts.push(Ok("Validation successful"));
+      alerts.push(Ok(i18n::text().validation_successful));
     } else {
-      alerts.push(Err("Validation failed"));
+      alerts.push(Err(i18n::text().validation_failed));
     };
   }
 
   fn unknown_terrains(&self) -> Option<String> {
     if let Some(unknown_terrains) = &self.unknown_terrains {
       let unknown_terrains = unknown_terrains.iter().map(|s| s.to_uppercase()).join(", ");
-      Some(format!("Terrain mode unavailable, unknown terrains present: {}", unknown_terrains))
+      Some(i18n::terrain_mode_unavailable(&unknown_terrains))
     } else {
       None
     }
@@ -658,25 +659,25 @@ impl Canvas {
   fn brush_info(&self) -> String {
     match self.view_mode {
       ViewMode::Color => match self.tool.color_brush {
-        Some(color) => format!("Color {}", stringify_color(color)),
-        None => "Color (No Brush)".to_owned()
+        Some(color) => i18n::brush_info_color(&stringify_color(color)),
+        None => format!("{} {}", i18n::text().brush_info_color_prefix.trim_end(), i18n::text().no_brush_suffix)
       },
       ViewMode::Kind => match self.tool.kind_brush {
-        Some(kind) => format!("Type {}", kind.to_str().to_uppercase()),
-        None => "Type (No Brush)".to_owned()
+        Some(kind) => i18n::brush_info_type(&kind.to_str().to_uppercase()),
+        None => format!("{} {}", i18n::text().brush_info_type_prefix.trim_end(), i18n::text().no_brush_suffix)
       },
       ViewMode::Terrain => match &self.tool.terrain_brush {
-        Some(terrain) => format!("Terrain {}", terrain.to_uppercase()),
-        None => "Terrain (No Brush)".to_owned()
+        Some(terrain) => i18n::brush_info_terrain(&terrain.to_uppercase()),
+        None => format!("{} {}", i18n::text().brush_info_terrain_prefix.trim_end(), i18n::text().no_brush_suffix)
       },
       ViewMode::Continent => match self.tool.continent_brush {
-        Some(continent) => format!("Continent {}", continent),
-        None => "Continent (No Brush)".to_owned()
+        Some(continent) => i18n::brush_info_continent(continent),
+        None => format!("{} {}", i18n::text().brush_info_continent_prefix.trim_end(), i18n::text().no_brush_suffix)
       },
-      ViewMode::Coastal => "Coastal".to_owned(),
+      ViewMode::Coastal => i18n::text().brush_info_coastal.to_owned(),
       ViewMode::Adjacencies => match self.tool.adjacency_brush {
-        Some(connection) => format!("Adjacencies {}", connection.to_str().to_uppercase()),
-        None => "Adjacencies (No Brush)".to_owned()
+        Some(connection) => i18n::brush_info_adjacencies(&connection.to_str().to_uppercase()),
+        None => format!("{} {}", i18n::text().brush_info_adjacencies_prefix.trim_end(), i18n::text().no_brush_suffix)
       }
     }
   }
@@ -684,8 +685,8 @@ impl Canvas {
   fn brush_mask_info(&self) -> String {
     if self.view_mode == ViewMode::Color {
       match self.tool.brush_mask {
-        Some(brush_mask) => format!("Mask {}", brush_mask.to_str().to_uppercase()),
-        None => "No Mask".to_owned()
+        Some(brush_mask) => i18n::brush_mask(&brush_mask.to_str().to_uppercase()),
+        None => i18n::text().no_mask.to_owned()
       }
     } else {
       String::new()
@@ -696,7 +697,7 @@ impl Canvas {
     let zoom_info = format!("{:.2}%", self.camera.scale_factor() * 100.0);
     let cursor_info = cursor_pos
       .and_then(|cursor_pos| self.camera.relative_position_int(interface, cursor_pos))
-      .map_or_else(String::new, |[x, y]| format!("{}, {} px", x, y));
+      .map_or_else(String::new, |[x, y]| i18n::camera_cursor_info(x, y));
     let brush_info = self.brush_info();
     let brush_mask_info = self.brush_mask_info();
     format!("{:<24}{:<24}{:<24}{}", cursor_info, zoom_info, brush_info, brush_mask_info)

@@ -7,6 +7,7 @@ pub mod config;
 pub mod error;
 pub mod events;
 pub mod font;
+pub mod i18n;
 
 use glutin_window::GlutinWindow;
 use glutin::dpi::LogicalSize;

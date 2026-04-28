@@ -9,6 +9,7 @@ use vecmath::Vector2;
 
 use crate::app::colors;
 use crate::app::canvas::CameraCombo;
+use crate::i18n;
 use super::{Bundle, Color, Map, Extents, boundary_to_line};
 use crate::util::{stringify_color, XYIter};
 
@@ -77,26 +78,26 @@ impl fmt::Display for Problem {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match *self {
       Problem::InvalidXCrossing(pos) => {
-        write!(f, "Invalid X crossing at {:?}", pos)
+        write!(f, "{}", i18n::map_problem_invalid_x_crossing(pos))
       },
       Problem::TooLargeBox(extents) => {
-        write!(f, "Province has too large box from {:?} to {:?}", extents.upper, extents.lower)
+        write!(f, "{}", i18n::map_problem_too_large_box(extents.upper, extents.lower))
       },
       Problem::TooFewPixels(count, [x, y]) => {
-        write!(f, "Province has only {} pixels around [{:.0}, {:.0}]", count, x, y)
+        write!(f, "{}", i18n::map_problem_too_few_pixels(count, x, y))
       },
       Problem::InvalidWidth => {
-        write!(f, "Map texture width is not a multiple of 64")
+        write!(f, "{}", i18n::text().problem_invalid_width)
       },
       Problem::InvalidHeight => {
-        write!(f, "Map texture height is not a multiple of 64")
+        write!(f, "{}", i18n::text().problem_invalid_height)
       },
       Problem::LonePixel(pos) => {
-        write!(f, "Lone pixel at {:?}", pos)
+        write!(f, "{}", i18n::map_problem_lone_pixel(pos))
       },
       Problem::FewSharedBorders(boundary, ref borders) => {
         let [a, b] = boundary.map(|which| stringify_color(which)).into_array();
-        write!(f, "Only {} shared borders between provinces {} and {}", borders.len(), a, b)
+        write!(f, "{}", i18n::map_problem_few_shared_borders(borders.len(), &a, &b))
       },
     }
   }

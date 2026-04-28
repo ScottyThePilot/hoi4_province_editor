@@ -9,6 +9,7 @@ use super::{Color, Bundle, MapBase, Map, ProvinceData, ConnectionData, random_co
 use crate::app::format::{Adjacency, Definition, ParseCsv};
 use crate::config::Config;
 use crate::error::Error;
+use crate::i18n;
 use crate::util::files::Location;
 
 use std::collections::hash_map::Entry;
@@ -182,10 +183,10 @@ enum IdChange {
 impl ToString for IdChange {
   fn to_string(&self) -> String {
     match self {
-      IdChange::DeletedRange(start, end) => format!("Deleted IDs {} through {}", start, end),
-      IdChange::CreatedRange(start, end) => format!("Created IDs {} through {}", start, end),
-      IdChange::Reassigned(from, to) => format!("Reassigned ID {} to {}", from, to),
-      IdChange::AssignedNew(id) => format!("Assigned ID {} to new province", id)
+      IdChange::DeletedRange(start, end) => i18n::id_change_deleted(*start, *end),
+      IdChange::CreatedRange(start, end) => i18n::id_change_created(*start, *end),
+      IdChange::Reassigned(from, to) => i18n::id_change_reassigned(*from, *to),
+      IdChange::AssignedNew(id) => i18n::id_change_assigned_new(*id)
     }
   }
 }

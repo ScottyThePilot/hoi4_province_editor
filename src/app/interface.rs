@@ -9,6 +9,7 @@ use opengl_graphics::{Texture, TextureSettings, GlGraphics};
 use vecmath::Vector2;
 
 use crate::font;
+use crate::i18n::text;
 use super::canvas::ViewMode;
 use super::colors;
 use super::{FontGlyphCache, InterfaceDrawContext, draw_text};
@@ -63,13 +64,14 @@ impl Interface {
 
     let mut pos_x = 0;
     let mut toolbar_height = 0;
-    let mut toolbar_buttons = Vec::with_capacity(TOOLBAR_PRIMITIVE.len());
-    for &(toolbar_button_text, toolbar_primitive_buttons) in TOOLBAR_PRIMITIVE {
+    let toolbar_primitive = toolbar_primitive();
+    let mut toolbar_buttons = Vec::with_capacity(toolbar_primitive.len());
+    for (toolbar_button_text, toolbar_primitive_buttons) in toolbar_primitive {
       let mut buttons = Vec::with_capacity(toolbar_primitive_buttons.len());
       let base = ButtonBase::new_fit_width(toolbar_button_text, [pos_x, 0], &PALETTE_BUTTON_TOOLBAR);
 
       let mut pos_y = base.height();
-      for &(button_text_left, button_text_right, id) in toolbar_primitive_buttons {
+      for (button_text_left, button_text_right, id) in toolbar_primitive_buttons {
         let text = [button_text_left, button_text_right];
         let base = ButtonBase::new_double_text(text, [pos_x, pos_y], TOOLBAR_DROPDOWN_WIDTH, &PALETTE_BUTTON);
         pos_y += base.height();
@@ -281,27 +283,28 @@ impl ButtonElement {
 
   fn tooltip(&self, view_mode: Option<ViewMode>) -> Option<&'static str> {
     use ButtonId::*;
+    let strings = text();
     let view_mode = view_mode?;
 
     match (self.id, view_mode) {
       (SidebarToolPaintArea, ViewMode::Color) =>
-        Some("Paint Area: Drag to paint provinces under the brush"),
+        Some(strings.tooltip_paint_area_color),
       (SidebarToolPaintArea, ViewMode::Kind) =>
-        Some("Paint Area: Drag to assign province types"),
+        Some(strings.tooltip_paint_area_kind),
       (SidebarToolPaintArea, ViewMode::Terrain) =>
-        Some("Paint Area: Drag to assign province terrain types"),
+        Some(strings.tooltip_paint_area_terrain),
       (SidebarToolPaintArea, ViewMode::Continent) =>
-        Some("Paint Area: Drag to assign provinces to continents"),
+        Some(strings.tooltip_paint_area_continent),
       (SidebarToolPaintBucket, ViewMode::Color) =>
-        Some("Paint Bucket: Fill the hovered province with the current brush"),
+        Some(strings.tooltip_paint_bucket),
       (SidebarToolLasso, ViewMode::Color) =>
-        Some("Lasso: Draw a custom selection and then apply the current brush"),
+        Some(strings.tooltip_lasso),
       (SidebarOptionProvinceIds, ..) =>
-        Some("Toggle Province IDs: Show or hide province IDs on the map"),
+        Some(strings.tooltip_toggle_province_ids),
       (SidebarOptionProvinceBoundaries, ..) =>
-        Some("Toggle Province Boundaries: Show or hide province borders"),
+        Some(strings.tooltip_toggle_province_boundaries),
       (SidebarOptionRiverOverlay, ..) =>
-        Some("Toggle Rivers Overlay: Show or hide the contents of rivers.bmp"),
+        Some(strings.tooltip_toggle_rivers_overlay),
       _ => None
     }
   }
@@ -605,8 +608,8 @@ pub enum ButtonId {
   SidebarOptionRiverOverlay
 }
 
-type ToolbarButtonPrimitive<'a> = (&'a str, &'a [(&'a str, &'a str, ButtonId)]);
-type ToolbarPrimitive<'a> = &'a [ToolbarButtonPrimitive<'a>];
+type ToolbarPrimitiveButton = (&'static str, &'static str, ButtonId);
+type ToolbarPrimitiveSection = (&'static str, Vec<ToolbarPrimitiveButton>);
 type SidebarPrimitive<'a> = &'a [([u32; 4], ButtonId, SidebarPrimitiveKind)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -615,45 +618,6 @@ enum SidebarPrimitiveKind {
 }
 
 const TOOLBAR_DROPDOWN_WIDTH: u32 = 320;
-const TOOLBAR_PRIMITIVE: ToolbarPrimitive<'static> = &[
-  ("File", &[
-    ("Open File or Archive...", "Ctrl+Alt+O", ButtonId::ToolbarFileOpenFileArchive),
-    ("Open Folder...", "Ctrl+O", ButtonId::ToolbarFileOpenFolder),
-    ("Save", "Ctrl+S", ButtonId::ToolbarFileSave),
-    ("Save As Archive...", "Ctrl+Shift+Alt+S", ButtonId::ToolbarFileSaveAsArchive),
-    ("Save As...", "Ctrl+Shift+S", ButtonId::ToolbarFileSaveAsFolder),
-    ("Reveal in File Browser", "Ctrl+Alt+R", ButtonId::ToolbarFileReveal),
-    ("Export Land Map...", "", ButtonId::ToolbarFileExportLandMap),
-    ("Export Terrain Map...", "", ButtonId::ToolbarFileExportTerrainMap)
-  ]),
-  ("Edit", &[
-    ("Undo", "Ctrl+Z", ButtonId::ToolbarEditUndo),
-    ("Redo", "Ctrl+Y", ButtonId::ToolbarEditRedo),
-    ("Re-calculate Coastal Provinces", "Shift+C", ButtonId::ToolbarEditCoastal),
-    ("Re-color Provinces", "Shift+R", ButtonId::ToolbarEditRecolor),
-    ("Calculate Map Errors/Warnings", "Shift+P", ButtonId::ToolbarEditProblems),
-    ("Toggle Lasso Pixel Snap", "", ButtonId::ToolbarEditToggleLassoSnap),
-    ("Next Brush Mask Mode", "Shift+M", ButtonId::ToolbarEditNextMaskMode)
-  ]),
-  ("View", &[
-    ("Color/Province Map View Mode", "1", ButtonId::ToolbarViewMode1),
-    ("Terrain/Biome Map View Mode", "2", ButtonId::ToolbarViewMode2),
-    ("Land Type Map View Mode", "3", ButtonId::ToolbarViewMode3),
-    ("Continents Map View Mode", "4", ButtonId::ToolbarViewMode4),
-    ("Coastal Provinces Map View Mode", "5", ButtonId::ToolbarViewMode5),
-    ("Adjacencies Map View Mode", "6", ButtonId::ToolbarViewMode6),
-    ("Toggle Province IDs", "", ButtonId::ToolbarViewToggleProvinceIds),
-    ("Toggle Province Boundaries", "", ButtonId::ToolbarViewToggleProvinceBoundaries),
-    ("Toggle Rivers Overlay", "", ButtonId::ToolbarViewToggleRiverOverlay),
-    ("Reset Zoom", "H", ButtonId::ToolbarViewResetZoom),
-    ("View Inconsolata Open Font License", "", ButtonId::ToolbarViewFontLicense)
-  ]),
-  #[cfg(any(debug_assertions, feature = "debug-mode"))]
-  ("Debug", &[
-    ("Validate Pixel Counts", "", ButtonId::ToolbarDebugValidatePixelCounts),
-    ("Trigger a Crash", "", ButtonId::ToolbarDebugTriggerCrash)
-  ])
-];
 
 const SIDEBAR_PRIMITIVE: SidebarPrimitive<'static> = &[
   ([00, 00, 24, 24], ButtonId::SidebarToolPaintArea, SidebarPrimitiveKind::Tool),
@@ -677,4 +641,50 @@ fn get_sprite(sprite_coords: [u32; 4]) -> Texture {
   let [x, y, width, height] = sprite_coords;
   let view = SPRITESHEET.view(x, y, width, height);
   Texture::from_image(&view.to_image(), &TextureSettings::new())
+}
+
+fn toolbar_primitive() -> Vec<ToolbarPrimitiveSection> {
+  let strings = text();
+  let mut sections = vec![
+    (strings.menu_file, vec![
+      (strings.open_file_archive, "Ctrl+Alt+O", ButtonId::ToolbarFileOpenFileArchive),
+      (strings.open_folder, "Ctrl+O", ButtonId::ToolbarFileOpenFolder),
+      (strings.save, "Ctrl+S", ButtonId::ToolbarFileSave),
+      (strings.save_as_archive, "Ctrl+Shift+Alt+S", ButtonId::ToolbarFileSaveAsArchive),
+      (strings.save_as, "Ctrl+Shift+S", ButtonId::ToolbarFileSaveAsFolder),
+      (strings.reveal_in_file_browser, "Ctrl+Alt+R", ButtonId::ToolbarFileReveal),
+      (strings.export_land_map, "", ButtonId::ToolbarFileExportLandMap),
+      (strings.export_terrain_map, "", ButtonId::ToolbarFileExportTerrainMap),
+    ]),
+    (strings.menu_edit, vec![
+      (strings.undo, "Ctrl+Z", ButtonId::ToolbarEditUndo),
+      (strings.redo, "Ctrl+Y", ButtonId::ToolbarEditRedo),
+      (strings.recalculate_coastal_provinces, "Shift+C", ButtonId::ToolbarEditCoastal),
+      (strings.recolor_provinces, "Shift+R", ButtonId::ToolbarEditRecolor),
+      (strings.calculate_map_errors_warnings, "Shift+P", ButtonId::ToolbarEditProblems),
+      (strings.toggle_lasso_pixel_snap, "", ButtonId::ToolbarEditToggleLassoSnap),
+      (strings.next_brush_mask_mode, "Shift+M", ButtonId::ToolbarEditNextMaskMode),
+    ]),
+    (strings.menu_view, vec![
+      (strings.color_view_mode, "1", ButtonId::ToolbarViewMode1),
+      (strings.terrain_view_mode, "2", ButtonId::ToolbarViewMode2),
+      (strings.land_type_view_mode, "3", ButtonId::ToolbarViewMode3),
+      (strings.continents_view_mode, "4", ButtonId::ToolbarViewMode4),
+      (strings.coastal_view_mode, "5", ButtonId::ToolbarViewMode5),
+      (strings.adjacencies_view_mode, "6", ButtonId::ToolbarViewMode6),
+      (strings.toggle_province_ids, "", ButtonId::ToolbarViewToggleProvinceIds),
+      (strings.toggle_province_boundaries, "", ButtonId::ToolbarViewToggleProvinceBoundaries),
+      (strings.toggle_rivers_overlay, "", ButtonId::ToolbarViewToggleRiverOverlay),
+      (strings.reset_zoom, "H", ButtonId::ToolbarViewResetZoom),
+      (strings.view_font_license, "", ButtonId::ToolbarViewFontLicense),
+    ]),
+  ];
+
+  #[cfg(any(debug_assertions, feature = "debug-mode"))]
+  sections.push((strings.menu_debug, vec![
+    (strings.validate_pixel_counts, "", ButtonId::ToolbarDebugValidatePixelCounts),
+    (strings.trigger_crash, "", ButtonId::ToolbarDebugTriggerCrash),
+  ]));
+
+  sections
 }

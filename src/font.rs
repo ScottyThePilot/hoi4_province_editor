@@ -9,6 +9,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::error::Error;
+use crate::i18n;
 
 pub const FONT_SIZE: u32 = 11;
 const POINTS_TO_PIXELS: f32 = 4.0 / 3.0;
@@ -36,11 +37,41 @@ pub fn get_font() -> Font<'static> {
 }
 
 fn get_font_ref() -> &'static Font<'static> {
-    const FONT_DATA: &[u8] = include_bytes!("../assets/Inconsolata-Regular.ttf");
-    static FONT: Lazy<Font<'static>> =
-        Lazy::new(|| Font::try_from_bytes(FONT_DATA).expect("unable to load font"));
+    static FONT: Lazy<Font<'static>> = Lazy::new(load_font);
 
     &*FONT
+}
+
+fn load_font() -> Font<'static> {
+    try_load_system_font().unwrap_or_else(|| {
+        const FONT_DATA: &[u8] = include_bytes!("../assets/Inconsolata-Regular.ttf");
+        Font::try_from_bytes(FONT_DATA).expect("unable to load font")
+    })
+}
+
+fn try_load_system_font() -> Option<Font<'static>> {
+    #[cfg(target_os = "windows")]
+    {
+        if i18n::lang() != i18n::Lang::ZhCn {
+            return None;
+        }
+
+        for path in [
+            r"C:\Windows\Fonts\simhei.ttf",
+            r"C:\Windows\Fonts\msyh.ttf",
+            r"C:\Windows\Fonts\simkai.ttf",
+            r"C:\Windows\Fonts\msyh.ttc",
+            r"C:\Windows\Fonts\simsun.ttc",
+        ] {
+            if let Ok(data) = fs::read(path) {
+                if let Some(font) = Font::try_from_vec(data) {
+                    return Some(font);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 pub fn get_width_metric(ch: char) -> f64 {

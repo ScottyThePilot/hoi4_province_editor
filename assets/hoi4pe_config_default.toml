@@ -1,3 +1,7 @@
+# UI language. Restart the app after changing this value.
+# Available values: "en", "zh-cn"
+language = "en"
+
 # The max number of history states to keep for undo/redo
 max-undo-states = 24
 

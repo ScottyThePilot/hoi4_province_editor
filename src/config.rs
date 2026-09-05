@@ -12,6 +12,7 @@ const DEFAULT_CONFIG: &[u8] = include_bytes!("../assets/hoi4pe_config_default.to
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Config {
+  pub language: Language,
   pub max_undo_states: usize,
   pub preserve_ids: bool,
   pub change_view_mode_on_undo: bool,
@@ -22,6 +23,26 @@ pub struct Config {
 }
 
 impl Config {
+  pub fn load_language() -> Language {
+    #[derive(Debug, Default, Deserialize)]
+    #[serde(default, rename_all = "kebab-case")]
+    struct LanguageConfig {
+      language: Language
+    }
+
+    use std::io::ErrorKind;
+    match fs::read("hoi4pe_config.toml") {
+      Ok(data) => toml::from_slice::<LanguageConfig>(&data)
+        .map(|config| config.language)
+        .unwrap_or_default(),
+      Err(err) if err.kind() == ErrorKind::NotFound => {
+        let _ = fs::write("hoi4pe_config.toml", DEFAULT_CONFIG);
+        Language::default()
+      },
+      Err(_) => Language::default()
+    }
+  }
+
   pub fn load() -> Result<Config, LoadConfigError> {
     use std::io::ErrorKind;
     let mut config = match fs::read("hoi4pe_config.toml") {
@@ -72,6 +93,7 @@ impl Config {
 impl Default for Config {
   fn default() -> Config {
     Config {
+      language: Language::default(),
       max_undo_states: 24,
       preserve_ids: false,
       change_view_mode_on_undo: true,
@@ -85,6 +107,14 @@ impl Default for Config {
       }
     }
   }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Language {
+  #[default]
+  En,
+  ZhCn
 }
 
 #[derive(Debug, Copy, Clone, Deserialize)]

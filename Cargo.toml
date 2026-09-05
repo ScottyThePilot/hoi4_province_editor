@@ -48,3 +48,6 @@ debug = "full"
 
 [features]
 debug-mode = []
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_UI_HiDpi"] }

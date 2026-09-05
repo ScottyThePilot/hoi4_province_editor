@@ -1,11 +1,10 @@
-use graphics::Transformed;
 use graphics::context::Context;
 use graphics::types::Color as DrawColor;
 use opengl_graphics::GlGraphics;
 
-use super::{colors, FontGlyphCache};
+use super::{colors, FontGlyphCache, draw_text};
 use super::interface::Interface;
-use crate::font::{self, FONT_SIZE};
+use crate::font;
 
 use std::collections::VecDeque;
 
@@ -78,9 +77,7 @@ impl Alerts {
       for (i, (text, color)) in self.iter_all().enumerate() {
         let x = PADDING[0] + interface.get_sidebar_width() as f64;
         let y = height - i as f64 * font_height;
-        let t = ctx.transform.trans(x, y);
-        graphics::text(color, FONT_SIZE, text, glyph_cache, t, gl)
-          .expect("unable to draw text");
+        draw_text(ctx, color, [x, y], text, glyph_cache, gl);
       };
     } else {
       let height = self.len() as f64 * font_height + PADDING[1] + interface.get_toolbar_height() as f64;
@@ -89,9 +86,7 @@ impl Alerts {
       for (i, (text, color)) in self.iter().enumerate() {
         let x = PADDING[0] + interface.get_sidebar_width() as f64;
         let y = height - i as f64 * font_height;
-        let t = ctx.transform.trans(x, y);
-        graphics::text(color, FONT_SIZE, text, glyph_cache, t, gl)
-          .expect("unable to draw text");
+        draw_text(ctx, color, [x, y], text, glyph_cache, gl);
       };
     };
   }
